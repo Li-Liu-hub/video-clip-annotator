@@ -1,3 +1,4 @@
+/** 身份与会话。密码用 scrypt 哈希；身份每次都回表查，不信任 cookie 里的任何字段。 */
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { cookies } from 'next/headers';
 import { getDb, nowMs } from './db';

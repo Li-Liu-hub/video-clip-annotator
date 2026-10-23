@@ -1,5 +1,7 @@
 'use client';
 
+/** 登录表单与演示账号快捷入口。点账号即填充并提交，省去评分人输密码。 */
+
 import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 

@@ -1,3 +1,4 @@
+/** 登录页。已登录的访问者直接跳到各自的工作台，避免重复登录。 */
 import { redirect } from 'next/navigation';
 import { getSessionUser } from '@/lib/auth';
 import LoginForm from './LoginForm';

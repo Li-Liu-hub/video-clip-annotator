@@ -1,3 +1,4 @@
+/** 根布局：只放全局字体、主题色与基础样式，不承载任何业务逻辑。 */
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
 

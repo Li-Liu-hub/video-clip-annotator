@@ -1,3 +1,4 @@
+/** 数据库连接的唯一入口。createDb 用于测试与初始化，getDb 是生产单例。 */
 import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';

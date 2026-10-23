@@ -1,3 +1,4 @@
+/** 登录与登出。失败一律返回同一句话，避免攻击者枚举出哪些用户名存在。 */
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { getDb } from '@/lib/db';
