@@ -17,3 +17,8 @@ Thumbs.db
 
 # 工作区工具数据，不随项目分发
 .workbuddy/
+
+# IDE
+.idea/
+.vscode/
+*.iml
