@@ -16,6 +16,8 @@ export type TaskRow = {
   video_id: string;
   /** 管理员建任务时填的标题。列表以它为主信息，视频只是附件。 */
   title: string;
+  /** 工作台要展开给标注员看；与列表共用一条 SELECT，不为单个字段再开一条查询。 */
+  description: string | null;
   status: TaskStatus;
   claimed_by: string | null;
   estimated_ms: number;
@@ -37,7 +39,7 @@ export type ListOptions = { limit: number; offset: number };
  * 语义是「这条任务涉及多长的视频」，建任务时也按该时长估工。
  */
 const TASK_SELECT = `
-  SELECT t.id, t.tenant_id, t.video_id, t.title, t.status, t.claimed_by,
+  SELECT t.id, t.tenant_id, t.video_id, t.title, t.description, t.status, t.claimed_by,
          v.duration_ms AS estimated_ms, t.reject_reason, t.created_at,
          v.filename AS video_filename,
          tn.name AS tenant_name,

@@ -301,11 +301,9 @@ export default function TaskList({
 
                               {status === 'claimed' && mine ? (
                                 <>
-                                  <span title="后续版本">
-                                    <button type="button" className="btn btn-quiet" disabled>
-                                      继续标注
-                                    </button>
-                                  </span>
+                                  <Link className="btn btn-quiet" href={`/tasks/${task.id}/work`}>
+                                    继续标注
+                                  </Link>
                                   <button
                                     type="button"
                                     className="btn btn-quiet"

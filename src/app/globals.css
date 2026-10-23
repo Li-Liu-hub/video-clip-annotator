@@ -3,6 +3,8 @@
 
 @theme {
   --color-base: #08090d;
+  /* 视频舞台底色：比页面底色更暗，让画面边缘与留白分开 */
+  --color-void: #04050a;
   --color-panel: #0f1118;
   --color-panel-2: #151822;
   --color-panel-3: #1c202c;
