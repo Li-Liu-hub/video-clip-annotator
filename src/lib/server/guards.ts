@@ -26,9 +26,8 @@ export async function requireAdmin(): Promise<SessionUser> {
 }
 
 /**
- * 角色对应的落地页。根路径与登录页都要用；
- * 两处各写一遍三元表达式，就是这个映射将来漂移的方式。
+ * 角色对应的落地页。实现放在 lib/routes.ts：本文件 import 了 next/navigation，
+ * 客户端组件从这里取 homePathOf 会连带把服务端依赖打进浏览器 bundle。
+ * 在此 re-export，现有 `@/lib/server/guards` 的引用保持可用。
  */
-export function homePathOf(user: SessionUser): string {
-  return user.role === 'admin' ? '/admin' : '/tasks';
-}
+export { homePathOf } from '@/lib/routes';
