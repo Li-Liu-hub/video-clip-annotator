@@ -1,0 +1,33 @@
+{
+  "name": "video-segment-annotation",
+  "version": "1.0.0",
+  "private": true,
+  "description": "多租户视频片段标注平台",
+  "scripts": {
+    "predev": "node scripts/setup.mjs",
+    "dev": "next dev",
+    "prebuild": "node scripts/setup.mjs",
+    "build": "next build",
+    "start": "next start",
+    "db:reset": "node scripts/setup.mjs --reset",
+    "db:check": "node scripts/check-integrity.mjs"
+  },
+  "dependencies": {
+    "next": "^15.5.4",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "better-sqlite3": "^13.0.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.15.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.8.0"
+  },
+  "engines": {
+    "node": ">=20.9.0"
+  }
+}

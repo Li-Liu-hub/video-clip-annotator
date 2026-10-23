@@ -1,0 +1,19 @@
+# 依赖与构建产物
+node_modules/
+.next/
+out/
+tsconfig.tsbuildinfo
+next-env.d.ts
+
+# 运行时数据（数据库与上传的视频）
+data/
+!public/videos/
+
+# 本地环境
+.env*.local
+*.log
+.DS_Store
+Thumbs.db
+
+# 工作区工具数据，不随项目分发
+.workbuddy/

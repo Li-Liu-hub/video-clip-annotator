@@ -1,0 +1,171 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-base: #08090d;
+  --color-panel: #0f1118;
+  --color-panel-2: #151822;
+  --color-panel-3: #1c202c;
+  --color-line: #242836;
+  --color-line-soft: #1a1d27;
+  --color-ink: #e9ebf2;
+  --color-ink-dim: #9ba1b4;
+  --color-ink-faint: #666c7e;
+  --color-accent: #8b93f8;
+  --color-accent-2: #5b64d8;
+  --color-accent-soft: #232748;
+  --color-good: #4ade80;
+  --color-good-soft: #123024;
+  --color-warn: #fbbf24;
+  --color-warn-soft: #33270c;
+  --color-bad: #fb7185;
+  --color-bad-soft: #33151c;
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, 'Liberation Mono', monospace;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    background-color: var(--color-base);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    background-color: color-mix(in srgb, var(--color-accent) 35%, transparent);
+  }
+
+  input,
+  textarea,
+  select,
+  button {
+    font-family: inherit;
+  }
+
+  /* 时间轴与表格需要稳定的等宽数字 */
+  .tnum {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #2a2f3d;
+    border-radius: 999px;
+    border: 2px solid var(--color-base);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #3a4152;
+  }
+}
+
+@layer components {
+  .field {
+    width: 100%;
+    background-color: var(--color-panel-2);
+    border: 1px solid var(--color-line);
+    border-radius: 8px;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    color: var(--color-ink);
+    outline: none;
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+  }
+  .field::placeholder {
+    color: var(--color-ink-faint);
+  }
+  .field:focus {
+    border-color: var(--color-accent-2);
+    background-color: var(--color-panel-3);
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    padding: 0.5rem 0.9rem;
+    transition: background-color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+    cursor: pointer;
+    border: 1px solid transparent;
+    white-space: nowrap;
+  }
+  .btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+  .btn-primary {
+    background-color: var(--color-accent-2);
+    color: #f4f5ff;
+  }
+  .btn-primary:hover:not(:disabled) {
+    background-color: #6b74e8;
+  }
+  .btn-ghost {
+    background-color: transparent;
+    border-color: var(--color-line);
+    color: var(--color-ink-dim);
+  }
+  .btn-ghost:hover:not(:disabled) {
+    background-color: var(--color-panel-2);
+    color: var(--color-ink);
+  }
+  .btn-quiet {
+    background-color: transparent;
+    color: var(--color-ink-dim);
+    padding: 0.35rem 0.6rem;
+  }
+  .btn-quiet:hover:not(:disabled) {
+    background-color: var(--color-panel-3);
+    color: var(--color-ink);
+  }
+
+  .panel {
+    background-color: var(--color-panel);
+    border: 1px solid var(--color-line);
+    border-radius: 12px;
+  }
+
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.75rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    border: 1px solid var(--color-line);
+    color: var(--color-ink-dim);
+    white-space: nowrap;
+  }
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-in {
+  animation: fade-up 0.25s ease-out both;
+}

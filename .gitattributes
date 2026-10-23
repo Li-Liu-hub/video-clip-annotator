@@ -1,0 +1,9 @@
+* text=auto eol=lf
+
+*.mp4 binary
+*.jpg binary
+*.png binary
+*.sqlite binary
+*.db binary
+
+package-lock.json linguist-generated=true
