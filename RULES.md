@@ -1,60 +1,39 @@
 # 开发规范
 
-硬约束，不是建议。不符合时改代码，不改规范。
+硬约束，非建议。冲突时改代码，不改规范。
 
-**零信任**：不假定任何 agent（包括自己）会自觉守规矩。能做成机械检查的，就不要写成「请务必」。
+**零信任**：不依赖 agent 自觉。可机械检查者，一律脚本化。
 
 ## 工作方式（XP）
 
 小步、结对、持续集成、简单设计、随时重构。
 
-### 结对：Writer + Reviewer
+### 结对
 
-每个功能点由两个角色协作，**不共享思路**。
+| 角色 | 职责 | 约束 |
+|---|---|---|
+| Writer | 依功能点文档实现 | 仅读需求与规范；存疑即停机 |
+| Reviewer | 独立判定实现正确性 | 不看 Writer 推理过程；不重写业务实现 |
 
-| 角色           | 职责                      | 约束                                          |
-| ------------ | ----------------------- | ------------------------------------------- |
-| **Writer**   | 按功能点文档实现，对「跑通 + 通过验收」负责 | 只读需求与规范；需求有歧义必须停机上报                         |
-| **Reviewer** | 独立判断实现是否正确              | **不看 Writer 的推理过程**，只拿「需求文档 + 最终代码」；不重写业务实现 |
+Reviewer 的独立性是本流程唯一价值来源。知情推理则沿同一思路审查，「需求理解偏差」不可发现。
 
-**Reviewer 的独立性是这套流程唯一的价值来源。** 如果它知道 Writer 为什么这么写，  
-就会沿着同一条思路看下去，「需求理解偏了」这类问题永远审不出来。
+Reviewer 职责：核对验收清单、核对本规范、独立验证（测试、检查器、自撰反例测试）。
+输出须为具体问题（文件 + 行 + 失败原因）或「未发现问题 + 检查范围」，不接受主观判断。
 
-Reviewer 必须做三件事：
-
-1. 对照功能点文档的验收清单，逐条确认
-2. 对照本文件逐条检查（分层、命名、租户谓词、事务边界、注释）
-3. **独立验证**：跑测试、跑检查器；必要时写一个反例测试把代码证伪
-
-输出必须有结论：要么列出具体问题（文件 + 行 + 失败原因），要么写「未发现问题」并说明检查了什么。  
-**不接受「看起来没问题」。**
-
-**Reviewer 可动手的范围**：写反例测试、修命名与注释。  
-**禁止重写业务实现**——否则没人审查 Reviewer 改出来的 bug。  
-发现逻辑缺陷时，输出「文件 + 行 + 反例测试」打回给 Writer 修。
-
-**熔断**：同一功能点往返超过 3 轮仍未全绿，立即中止，交人类裁决。不许无限 ping-pong 烧 token。
+Reviewer 可撰写反例测试、修改命名与注释；禁止重写业务实现。
+逻辑缺陷须打回 Writer，附「文件 + 行 + 反例测试」。
+同一功能点往返逾 3 轮未全绿，熔断，交人类裁决。
 
 ### 停机上报
 
-需求文档存在歧义、未定义边界，或与本规范冲突时，**Writer 必须立即停止并列出阻塞点**。  
-严禁自行补全需求——脑补出来的需求，Reviewer 无从判断对错，只会审出「两边理解不一致」。
+需求歧义、边界未定义、或与本规范冲突时，Writer 立即停止并列出阻塞点，禁止自行补全需求。
 
-### 小步与持续集成
+### 节奏
 
-- 一个功能点一个提交，绿灯即推送，不攒大提交
-- 提交前必须：`tsc --noEmit` 通过、测试绿、验收清单逐条打勾
-- 红灯不进下一步，不「先放着回头修」
-
-### 简单设计
-
-**只实现当前功能点需要的。** 不为「以后可能要」预留抽象——  
-预留的抽象九成用不上，用上的那一成，届时形态也已经变了。
-
-### 重构
-
-每个功能点绿灯后，若发现重复或别扭，先重构再进下一个。  
-重构不改行为：测试必须保持绿，变红说明改的是功能不是结构。
+- 一个功能点一个提交，绿灯即推送；红灯不进入下一步
+- 提交前：`tsc --noEmit` 通过、测试绿、验收清单逐条确认
+- 仅实现当前功能点所需，不为「以后可能要」预留抽象
+- 绿灯后如发现重复或结构问题，先重构再继续，重构须保持测试绿
 
 ## 分层
 
@@ -62,151 +41,118 @@ Reviewer 必须做三件事：
 app/ → lib/services/ → lib/db/repos/ → SQLite
 ```
 
-- 只允许向下依赖，反向禁止
-- `app/**` 不得 import `lib/db/**`（ESLint 强制）
-- `lib/services/**` 不得 import `next/headers`、`next/navigation`
-- SQL 字符串只允许出现在 `lib/db/repos/**`
+仅允许向下依赖。
+
+- `app/**` 不 import `lib/db/**`（ESLint 强制）
+- `lib/services/**` 不 import `next/headers`、`next/navigation`
+- SQL 字符串仅允许出现于 `lib/db/repos/**`
+- 事务边界仅在 service 层，repo 不自行 `BEGIN`
 
 ## 命名
 
-| 对象    | 规则              | 例                 |
-| ----- | --------------- | ----------------- |
-| 文件    | kebab-case      | `task-service.ts` |
-| 组件    | PascalCase      | `Timeline.tsx`    |
-| 类型    | PascalCase      | `SessionUser`     |
-| 常量    | SCREAMING_SNAKE | `MAX_VIDEO_BYTES` |
-| 数据库字段 | snake_case      | `tenant_id`       |
-| 领域字段  | camelCase       | `tenantId`        |
+| 对象 | 规则 | 例 |
+|---|---|---|
+| 文件 | kebab-case | `task-service.ts` |
+| 组件 | PascalCase | `Timeline.tsx` |
+| 类型 | PascalCase | `SessionUser` |
+| 常量 | SCREAMING_SNAKE | `MAX_VIDEO_BYTES` |
+| 数据库字段 | snake_case | `tenant_id` |
+| 领域字段 | camelCase | `tenantId` |
 
-`TaskRow`（snake，来自 DB）与 `Task`（camel，业务用）必须分开，在 repo 层转换。
+`TaskRow`（DB，snake）与 `Task`（领域，camel）分离，于 repo 层转换。
 
 ## 数据
 
-- 时间戳：UTC 毫秒整数，字段后缀 `_at`
-- 日期：`TEXT` `YYYY-MM-DD`，字段后缀 `_date`，**写入时固化，查询期不换算**
-- 时区换算只有一处实现：`lib/time.ts` 的 `localDateOf()`
-- ID：16 位十六进制，由 `newId()` 生成
-- 区间：半开 `[start, end)`，毫秒；重叠判定恒为 `a.start < b.end && a.end > b.start`
-- 每条业务查询必须带 `tenant_id`（管理员路径传 `null`，且要显式）
+- 时间戳：UTC 毫秒整数，后缀 `_at`
+- 日期：`TEXT` `YYYY-MM-DD`，后缀 `_date`；写入时固化，查询期不换算
+- 时区换算唯一实现于 `lib/time.ts` 的 `localDateOf()`
+- ID：16 位十六进制，`newId()` 生成
+- 区间：半开 `[start, end)`，毫秒；重叠判定 `a.start < b.end && a.end > b.start`
+- 业务查询须含 `tenant_id`（管理员路径传 `null` 且显式）
 
 ## 错误
 
-- 用 `AppError` 子类，不用 `throw new Error()`
-- **跨租户访问返回 404，不返回 403**（403 等于承认资源存在）
-- 用户可见 `message` 用中文，不含表名 / SQL / 堆栈
-- `SQLITE_CONSTRAINT` 必须在 repo 层翻译成领域错误
-- **404 与 409 的区分顺序**：先判「存在且属于本租户」，再判「状态是否允许」。  
-  顺序反了会把「跨租户」说成「状态不对」，等于泄漏资源存在性。
-
-## 代码
-
-- 禁 `any`；用 `unknown` + 类型守卫
-- 禁 `enum`；用 `as const` + 联合类型
-- service 签名固定：`fn(db: DB, actor: SessionUser, input): Result`
-- repo 签名固定：`fn(db: DB, tenantId: string | null, ...): Row | Row[]`
-- **事务边界只在 service 层**。repo 只消费 `db: DB`，不得在内部 `BEGIN`——  
-  better-sqlite3 的事务回调拿到的是同一个连接对象，repo 再开事务会直接报  
-  `cannot start a transaction within a transaction`
-- 多表写入必须在同一个 `writeTx` 内，审计与业务同事务
-- 魔法数字提为具名常量并注明单位
+- 使用 `AppError` 子类，禁用 `throw new Error()`
+- 跨租户访问返回 404，禁用 403（403 确认资源存在性）
+- 用户可见 `message` 用中文，不含表名、SQL、堆栈
+- `SQLITE_CONSTRAINT` 须于 repo 层译为领域错误
+- 404 与 409 判定顺序：先判存在性与租户归属，再判状态
 
 ## 状态跃迁
 
-正常路径必须单条 SQL 原子完成，不做「先查后改」：
+正常路径以单条 SQL 原子完成：
 
 ```sql
-UPDATE tasks
-   SET status = 'claimed', claimed_by = ?, claimed_at = ?
+UPDATE tasks SET status = 'claimed', claimed_by = ?, claimed_at = ?
  WHERE id = ? AND tenant_id = ? AND status = 'pending';
 ```
 
-`changes === 1` 才算成功。
-
-**`changes === 0` 时无法判断原因**——可能是「不存在 / 跨租户」（该 404），  
-也可能是「状态不符」（该 409）。因此允许在**同一事务内补查一次**：
+`changes === 1` 视为成功。`changes === 0` 时原因不明，允许于同一事务内补查一次：
 
 ```ts
-if (changes === 0) {
-  const exists = db.prepare('SELECT 1 FROM tasks WHERE id = ? AND tenant_id = ?').get(id, tenantId);
-  throw exists ? new StateConflictError('当前状态不允许该操作') : new NotFoundError();
-}
+const exists = db.prepare('SELECT 1 FROM tasks WHERE id = ? AND tenant_id = ?').get(id, tenantId);
+throw exists ? new StateConflictError('当前状态不允许该操作') : new NotFoundError();
 ```
 
-补查只发生在失败分支，正常路径仍是单条 SQL 原子完成。
+补查仅在失败分支执行。禁止的是以「先查」替代原子更新，非禁止判定失败原因。
 
-**这不是对「禁止先查后改」的违反**：禁止的是用「先查」替代原子更新（会丢并发保护），  
-不是禁止判断失败原因。两条规则不冲突——先原子更新，失败了再查。
+## 代码
+
+- 禁 `any`，用 `unknown` + 类型守卫
+- 禁 `enum`，用 `as const` + 联合类型
+- service 签名：`fn(db: DB, actor: SessionUser, input): Result`
+- repo 签名：`fn(db: DB, tenantId: string | null, ...): Row | Row[]`
+- 多表写入须于同一 `writeTx` 内，审计与业务同事务
+- 魔法数字提为具名常量并注明单位
 
 ## 注释
 
-**每个文件顶部必须有文件头**，一句话说清这个文件管什么：
-
-```ts
-/** 任务状态机与领取逻辑。租户过滤在 service 层完成，这里只处理状态跃迁。 */
-```
-
-**函数**：非自明的（超过 15 行、有副作用、含业务规则）用一行说明它做什么。
-
-**关键选择写「为什么用这个」**：为什么用 `BEGIN IMMEDIATE` 而不是 `BEGIN`、  
-为什么区间用半开而不是闭区间、为什么这里要冗余 `tenant_id`。
-
-**极简**：一行能说清就不写两行，删掉所有形容词。
-
-**禁止**：注释掉的代码、无主 TODO、与代码不符的过期注释、装饰性分隔线（`// ===== xxx =====`）。
-
-**破例只能由人类授权**：`// rule-exception: <理由> —— 批准人 <who>`。  
-Writer **严禁自行添加**——遇到棘手的类型或规则就编一个理由绕过，是这类规范最常见的失效方式。  
-Reviewer 扫到无授权的 `rule-exception`，一票否决。
+- 每个文件顶部须有文件头，一句话说明职责
+- 非自明函数（逾 15 行、有副作用、含业务规则）以一行说明用途
+- 关键选择写明「为何用此方案」
+- 一行可述者不写两行，删除形容词
+- 禁：注释掉的代码、无主 TODO、与代码不符的过期注释、装饰性分隔线
+- 破例须人类授权：`// rule-exception: <理由> —— 批准人 <who>`；
+  Writer 禁自行添加，Reviewer 遇无授权破例一票否决
 
 ## 验证
 
-六层，各管一件事。**任何一层单独都不够**，缺了哪层，那类问题就没人管。
+六层，各司其职，任一缺失则该类问题无人负责。
 
-| # | 手段     | 管什么          | 命令                                 |
-| - | ------ | ------------ | ---------------------------------- |
-| 1 | TDD    | 业务规则对不对      | `npm test`                         |
-| 2 | ESLint | 依赖方向有没有越界    | `npm run lint`                     |
-| 3 | SQL 扫描 | 租户谓词有没有漏     | `npm run audit:sql`                |
-| 4 | 变异验证   | 前三层的「绿」是不是真的 | `npm run db:verify-checker` + 手工改坏 |
-| 5 | 运行库检查  | 真实数据有没有脏     | `npm run db:check`                 |
-| 6 | 手工验收   | UI 手感与视觉     | —                                  |
+| # | 手段 | 职责 | 命令 |
+|---|---|---|---|
+| 1 | TDD | 业务规则正确性 | `npm test` |
+| 2 | ESLint | 依赖方向 | `npm run lint` |
+| 3 | SQL 扫描 | 租户谓词完整性 | `npm run audit:sql` |
+| 4 | 变异验证 | 前三层有效性 | `npm run db:verify-checker` |
+| 5 | 运行库检查 | 存量数据一致性 | `npm run db:check` |
+| 6 | 手工验收 | UI 手感与视觉 | — |
 
-**第 1 层**：先写测试再写实现。但测的是不变量，不是实现细节——重构后行为不变，测试就不该红。
+另有 `npm run audit:rules`（挂于 `pretest`）：`rule-exception` 授权、repo 事务、
+`.only`、`console.log`、跨租户 403。
 
-**第 4 层不能省**：全绿只说明「实现与测试自洽」。改坏实现，确认测试变红，才知道测试有牙。  
-半开区间那种语义，写测试的人自己也会理解偏。
-
-**第 5 层不能省**：测试跑在 `:memory:` 上，从没碰过真实库。约束只防「写入时违反」，  
-防不了已经写进去的脏数据。
-
-**第 6 层不可替代**：拖拽手感、快捷键冲突、视觉层级，工具完全看不见。
-
-另有一层机械检查：`npm run audit:rules`（已挂在 `pretest` 上，跑测试必先过它）。
-它查的是能被正则判定死的东西——`rule-exception` 有没有批准人、repo 有没有偷偷开事务、
-测试里有没有 `.only`、源码有没有 `console.log`、跨租户有没有用 403。
-**能机械检查的规则，不要指望自觉。**
+- 第 4 层不可省：全绿仅示实现与测试自洽，不示测试有效
+- 第 5 层不可省：测试运行于 `:memory:`，未触及真实库
+- 第 6 层不可替代：交互与视觉无工具可测
 
 ## 测试
 
-- 每个用例一个全新的 `createDb(':memory:')`，不共享库
-- 禁 mock 数据库——要测的就是真实 SQL 与触发器
-- 一个 `it` 只断言一件事，用中文写成需求句式
-- **每条核心规则做一次变异验证**：改坏实现，确认测试变红。没变红等于没写
+- 每用例独立 `createDb(':memory:')`，不共享库
+- 禁 mock 数据库
+- 一个 `it` 一个断言，中文需求句式
+- 每条核心规则执行一次变异验证，未变红者视为未测
 
 ## 提交
 
-- 一个功能点一个提交，对应 `docs/steps/00-INDEX.md` 的编号
-- 格式：`<type>(<编号>): <做了什么>`
-- 提交前：`npx tsc --noEmit` 通过、无 `console.log`、无注释代码、验收清单逐条打勾
+- 一个功能点一个提交，对应 `docs/steps/00-INDEX.md` 编号
+- 格式：`<type>(<编号>): <描述>`
+- 提交前：`tsc --noEmit` 通过、无 `console.log`、无注释代码、验收清单逐条确认
 
 ## 自查
 
-写完后扫一眼：
-
-- [ ] 查询带 `tenant_id` 了吗
-- [ ] 跨租户返回 404 了吗
-- [ ] 多表写入在同一个事务里吗
-- [ ] 前端传的 `tenantId` 没覆盖会话身份吧
-- [ ] service 没 import `next/headers` 吧
-- [ ] 反直觉的地方写了「为什么」吗
-
+- [ ] 查询含 `tenant_id`
+- [ ] 跨租户返回 404
+- [ ] 多表写入同事务
+- [ ] 前端 `tenantId` 未覆盖会话身份
+- [ ] service 未 import `next/headers`
+- [ ] 反直觉处已写明原因
