@@ -1,15 +1,17 @@
 'use client';
 
 /**
- * 工作台播放器：受控 <video> + 自绘播放控件，右侧片段栏与底部时间轴留占位。
+ * 工作台播放器：受控 <video> + 自绘播放控件，下方挂时间轴，右侧片段栏留占位。
  *
- * 不用原生 controls：E2 的时间轴要与播放头共用「当前时间 / 总时长 / 是否在播」，
+ * 不用原生 controls：时间轴要与播放头共用「当前时间 / 总时长 / 是否在播」，
  * 原生控件把这些状态关在浏览器内部，取不到就只能整块重写。
  * 不用 blob URL：<video src> 是同源请求，浏览器自动带 session Cookie；
  * 先 fetch 再 createObjectURL 会把整个文件读进内存，并失去 Range，拖动进度条即失效。
  */
 import { useEffect, useRef, useState } from 'react';
+import type { Segment } from '@/lib/segment-interval';
 import type { WorkTask } from '@/lib/services/workbench-service';
+import Timeline from './Timeline';
 
 /** 毫秒 → mm:ss。分钟不折进位（超过一小时显示 65:03），与播放器时间轴同一口径。 */
 function formatClock(ms: number): string {
@@ -38,10 +40,19 @@ function PauseIcon() {
 
 type Props = { task: WorkTask };
 
+// E4 接入真实片段后删除
+/** 演示片段：工作台还没有片段来源（E4 才做 CRUD），?demo=1 时用它验证时间轴渲染。 */
+const DEMO_SEGMENTS: Segment[] = [
+  { startMs: 1200, endMs: 4600 },
+  { startMs: 7200, endMs: 12800 },
+  { startMs: 15400, endMs: 17200 },
+];
+
 export default function Workbench({ task }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(false);
   const [currentMs, setCurrentMs] = useState(0);
+  const [segments, setSegments] = useState<Segment[]>([]);
   /** 只接纳有限值；null 表示还没读到 metadata，或读到的是 Infinity */
   const [mediaDurationSec, setMediaDurationSec] = useState<number | null>(null);
 
@@ -92,6 +103,15 @@ export default function Workbench({ task }: Props) {
     };
   }, [task.id]);
 
+  useEffect(() => {
+    // E4 接入真实片段后删除
+    // 读 location 而非 useSearchParams：这个 demo 开关只临时存在一个功能点，
+    // 不值得为它在客户端组件里引入 Suspense 边界
+    if (new URLSearchParams(window.location.search).get('demo') === '1') {
+      setSegments(DEMO_SEGMENTS);
+    }
+  }, []);
+
   function togglePlay() {
     const video = videoRef.current;
     if (!video) return;
@@ -103,17 +123,10 @@ export default function Workbench({ task }: Props) {
     }
   }
 
-  /**
-   * 临时进度条。
-   *
-   * 没有用原生 controls（E2 的时间轴要与播放头共用状态，原生控件拿不到内部状态），
-   * 但标注必须能定位到任意时刻，所以先给一个 range。
-   * E2 的时间轴会取代它，届时删掉这个 input 与 seek。
-   */
-  function seek(event: React.ChangeEvent<HTMLInputElement>) {
+  /** 时间轴点击定位。先同步文本，不等 4Hz 的 timeupdate 回填，否则数字滞后于画面。 */
+  function seekTo(ms: number) {
     const video = videoRef.current;
-    const ms = Number(event.target.value);
-    if (!video || !Number.isFinite(ms)) return;
+    if (!video) return;
     video.currentTime = ms / 1000;
     setCurrentMs(ms);
   }
@@ -146,17 +159,7 @@ export default function Workbench({ task }: Props) {
             >
               {playing ? <PauseIcon /> : <PlayIcon />}
             </button>
-            <input
-              type="range"
-              min={0}
-              max={Math.max(Math.round(durationSec * 1000), 1)}
-              step={10}
-              value={Math.min(Math.round(currentMs), Math.round(durationSec * 1000))}
-              onChange={seek}
-              aria-label="播放进度"
-              className="h-1 min-w-0 flex-1 cursor-pointer appearance-none rounded-full bg-line accent-accent-2"
-            />
-            <span className="tnum text-[12px] text-ink-dim">
+            <span className="tnum ml-auto text-[12px] text-ink-dim">
               {formatClock(currentMs)} / {formatClock(durationSec * 1000)}
             </span>
           </div>
@@ -172,9 +175,12 @@ export default function Workbench({ task }: Props) {
         </aside>
       </div>
 
-      <div className="flex h-16 items-center justify-center rounded-lg border border-dashed border-line text-[11.5px] text-ink-faint">
-        时间轴（下一版）
-      </div>
+      <Timeline
+        durationMs={durationSec * 1000}
+        segments={segments}
+        videoRef={videoRef}
+        onSeek={seekTo}
+      />
     </div>
   );
 }
