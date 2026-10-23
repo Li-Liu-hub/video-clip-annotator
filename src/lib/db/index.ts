@@ -33,7 +33,13 @@ export function createDb(dbPath: string): DB {
   }
   const db = new Database(dbPath);
   applyPragmas(db);
-  db.exec(loadSchema());
+  try {
+    db.exec(loadSchema());
+  } catch (err) {
+    // 建表失败时释放句柄，否则文件被占用、测试与清理都会卡住
+    db.close();
+    throw err;
+  }
   return db;
 }
 
