@@ -60,8 +60,15 @@ export class ForbiddenError extends AppError {
 }
 
 export class ValidationError extends AppError {
-  constructor(message = '请求参数不合法') {
-    super('VALIDATION', 400, message);
+  /** options.cause 用于保留 repo 层转译前的 SQLITE_CONSTRAINT 原文 */
+  constructor(message = '请求参数不合法', options?: { cause?: unknown }) {
+    super('VALIDATION', 400, message, undefined, options);
+  }
+}
+
+export class PayloadTooLargeError extends AppError {
+  constructor(message = '上传内容超过大小限制') {
+    super('PAYLOAD_TOO_LARGE', 413, message);
   }
 }
 
