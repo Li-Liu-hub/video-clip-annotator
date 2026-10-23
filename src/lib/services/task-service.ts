@@ -17,6 +17,7 @@ import {
   releaseIfOwned,
   type ListOptions,
   type TaskRow,
+  type TaskStatus,
 } from '@/lib/db/repos/task-repo';
 import { findById as findVideoById } from '@/lib/db/repos/video-repo';
 import { findById as findTenantById, listAll as listAllTenants } from '@/lib/db/repos/tenant-repo';
@@ -46,14 +47,27 @@ const BROKEN_IDENTITY_MESSAGE = '账号数据异常，请联系管理员';
  *
  * 标注员缺少租户时抛错而不是返回空列表：空列表会让这个 bug 永久隐身，
  * 直到某天用户发现「我明明有任务却什么都不显示」。
+ *
+ * status 只作用于管理员视图：审核入口在管理台，标注员页没有筛选条，
+ * 若在这里也过滤，标注员会看不到自己刚被退回的任务。
  */
-export function listTasks(db: DB, actor: SessionUser, page: number): TaskPage {
+export function listTasks(
+  db: DB,
+  actor: SessionUser,
+  page: number,
+  status: TaskStatus | null = null,
+): TaskPage {
   // 页码来自 URL 查询串（见各页面），非正整数一律回落第一页，避免负 OFFSET
   const current = Number.isInteger(page) && page >= 1 ? page : 1;
   const options: ListOptions = { limit: PAGE_SIZE, offset: (current - 1) * PAGE_SIZE };
 
   if (actor.role === 'admin') {
-    return { items: listAll(db, options), total: countAll(db), page: current, pageSize: PAGE_SIZE };
+    return {
+      items: listAll(db, options, status),
+      total: countAll(db, status),
+      page: current,
+      pageSize: PAGE_SIZE,
+    };
   }
 
   // 抛错独占一行：audit:rules 把「同一行既出现 ForbiddenError 又出现租户」判为跨租户 403，

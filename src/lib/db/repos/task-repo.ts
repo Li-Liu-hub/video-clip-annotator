@@ -8,15 +8,19 @@
 import type { DB } from '@/lib/db';
 import { NotFoundError } from '@/lib/errors';
 
+export type TaskStatus = 'pending' | 'claimed' | 'submitted' | 'rejected';
+
 export type TaskRow = {
   id: string;
   tenant_id: string;
   video_id: string;
   /** 管理员建任务时填的标题。列表以它为主信息，视频只是附件。 */
   title: string;
-  status: 'pending' | 'claimed' | 'submitted' | 'rejected';
+  status: TaskStatus;
   claimed_by: string | null;
   estimated_ms: number;
+  /** 退回原因。只在 rejected 行有值，两个视图都要展示，标注员才知道要改什么。 */
+  reject_reason: string | null;
   created_at: number;
   // 以下为 join 出来的展示字段
   video_filename: string;
@@ -34,7 +38,7 @@ export type ListOptions = { limit: number; offset: number };
  */
 const TASK_SELECT = `
   SELECT t.id, t.tenant_id, t.video_id, t.title, t.status, t.claimed_by,
-         v.duration_ms AS estimated_ms, t.created_at,
+         v.duration_ms AS estimated_ms, t.reject_reason, t.created_at,
          v.filename AS video_filename,
          tn.name AS tenant_name,
          cu.display_name AS claimed_by_name
@@ -55,17 +59,39 @@ const TASK_ORDER = 'ORDER BY t.created_at DESC, t.id DESC';
  */
 const ANNOTATOR_SCOPE = `t.tenant_id = ? AND (t.status = 'pending' OR t.claimed_by = ?)`;
 
-/** 管理员视图：无租户谓词，可见全部。 */
-export function listAll(db: DB, options: ListOptions): TaskRow[] {
-  return db
-    .prepare(`${TASK_SELECT} ${TASK_ORDER} LIMIT ? OFFSET ?`)
-    .all(options.limit, options.offset) as TaskRow[];
+/**
+ * 管理员视图的状态筛选谓词。null = 不筛，走不含 WHERE 的那条 SQL。
+ *
+ * 不用 `(? IS NULL OR t.status = ?)` 把两种情形塞进一条 SQL：
+ * 那样管理员列表的常用路径也带上一个恒真条件，索引选择变差且读 SQL 时要多绕一层。
+ */
+const ADMIN_STATUS_FILTER = 't.status = ?';
+
+/** 管理员视图：无租户谓词，可见全部。status 非空时只列该状态。 */
+export function listAll(
+  db: DB,
+  options: ListOptions,
+  status: TaskStatus | null = null,
+): TaskRow[] {
+  const sql =
+    status === null
+      ? `${TASK_SELECT} ${TASK_ORDER} LIMIT ? OFFSET ?`
+      : `${TASK_SELECT} WHERE ${ADMIN_STATUS_FILTER} ${TASK_ORDER} LIMIT ? OFFSET ?`;
+  const params =
+    status === null ? [options.limit, options.offset] : [status, options.limit, options.offset];
+  return db.prepare(sql).all(...params) as TaskRow[];
 }
 
-export function countAll(db: DB): number {
+export function countAll(db: DB, status: TaskStatus | null = null): number {
   // audit-ignore: 管理员全量视图，刻意不含租户谓词，与 listAll 同范围
-  const row = db.prepare(`SELECT COUNT(*) AS n FROM tasks t`).get();
-  return (row as { n: number }).n;
+  const sql =
+    status === null
+      ? 'SELECT COUNT(*) AS n FROM tasks t'
+      : `SELECT COUNT(*) AS n FROM tasks t WHERE ${ADMIN_STATUS_FILTER}`;
+  const row = (status === null ? db.prepare(sql).get() : db.prepare(sql).get(status)) as {
+    n: number;
+  };
+  return row.n;
 }
 
 /** 标注员视图：本租户 且（待领取 或 自己领取）。 */
@@ -122,6 +148,18 @@ export function findByIdForTenant(db: DB, taskId: string, tenantId: string): Tas
 }
 
 /**
+ * 按 id 全局查一条：管理员视图，无租户谓词。
+ *
+ * 与 findByIdForTenant 分开而不是加一个可空租户参数：
+ * 租户参数一旦可空，标注员身份残缺时查询会静默升级为全量。
+ */
+export function findById(db: DB, taskId: string): TaskRow | null {
+  // audit-ignore: 管理员全量视图，与 listAll 同范围
+  const row = db.prepare(`${TASK_SELECT} WHERE t.id = ?`).get(taskId) as TaskRow | undefined;
+  return row ?? null;
+}
+
+/**
  * 仅当任务仍为 pending 且属于该租户时改为 claimed。返回是否命中。
  *
  * 命中与否只能靠 changes 判定：先查状态再无条件 UPDATE，两人同时领取时都会通过检查，
@@ -161,6 +199,27 @@ export function releaseIfOwned(
         WHERE id = ? AND tenant_id = ? AND claimed_by = ? AND status = 'claimed'`,
     )
     .run(args.taskId, args.tenantId, args.userId);
+  return result.changes > 0;
+}
+
+/**
+ * 仅当任务仍为 submitted 时改为 rejected 并记下原因。返回是否命中。
+ *
+ * 命中与否只靠 changes：先查状态再无条件 UPDATE，两人同时退回、
+ * 或标注员恰在此刻重新提交时，后写者会覆盖先写者，冲正条目还会写两条。
+ *
+ * 不带租户谓词是因为只被管理员全局视图调用；任务存在性由 service 先判。
+ * 不接收时间戳：schema 没有 rejected_at 列，传进来也无处可写。
+ */
+export function rejectIfSubmitted(db: DB, args: { taskId: string; reason: string }): boolean {
+  // audit-ignore: 管理员退回，任务 id 已由管理员全局视图定位
+  const result = db
+    .prepare(
+      `UPDATE tasks
+          SET status = 'rejected', reject_reason = ?
+        WHERE id = ? AND status = 'submitted'`,
+    )
+    .run(args.reason, args.taskId);
   return result.changes > 0;
 }
 
