@@ -2,7 +2,7 @@
  * 片段区间校验的边界表测试。
  *
  * 先于实现书写：`normalizeSegments` 尚未存在时这些用例应当全部失败。
- * 每条 it 对应 docs/steps/15-segment-interval.md 边界表的一行。
+ * 每条 it 对应 docs/steps/14a-segment-interval.md 边界表的一行。
  */
 import { describe, expect, it } from 'vitest';
 import {

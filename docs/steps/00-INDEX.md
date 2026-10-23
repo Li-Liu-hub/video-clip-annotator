@@ -75,11 +75,14 @@
 | E1  | 工作台骨架与视频播放器              | [15-workbench-shell](15-workbench-shell.md)     | D3    | 0.5h |
 | E2  | 时间轴渲染（片段色块 + 播放头）        | [16-timeline-render](16-timeline-render.md)     | E1    | 1h   |
 | E3  | 拖拽创建与调整区间                | [17-timeline-drag](17-timeline-drag.md)         | E2    | 1.5h |
-| E4  | 片段 CRUD API（含预检 + 触发器兜底） | [18-segment-api](18-segment-api.md)             | A1    | 0.5h |
-| E5  | 片段列表（选中、编辑、删除）           | [19-segment-list](19-segment-list.md)           | E4 E2 | 0.5h |
+| E4  | 片段 CRUD API（含预检 + 触发器兜底） | [18-segment-api](18-segment-api.md)             | A1    | 0.5h || E5  | 片段列表（选中、编辑、删除）           | [19-segment-list](19-segment-list.md)           | E4 E2 | 0.5h |
 | E6  | 冲突实时反馈（拖拽中即提示）           | [20-conflict-feedback](20-conflict-feedback.md) | E3    | 0.5h |
 | E7  | 键盘快捷键                    | [21-shortcuts](21-shortcuts.md)                 | E3    | 0.5h |
 | E8  | 撤销与重做（草稿态）               | [22-undo-redo](22-undo-redo.md)                 | E5    | 1h   |
+
+> **预检逻辑已先行**：E4 的区间校验不依赖 UI，已提成纯函数完成 ——
+> 见 [14a-segment-interval](14a-segment-interval.md)（22 例测试）。
+> E4 实现时直接调用 `normalizeSegments`，不再重写校验规则。
 
 **M2 能标片段** ← 到这里核心价值成立
 
