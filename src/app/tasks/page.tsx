@@ -8,7 +8,8 @@ import { redirect } from 'next/navigation';
 import { getDb } from '@/lib/server/db';
 import { requireUser } from '@/lib/server/guards';
 import { PAGE_SIZE, listTasks } from '@/lib/services/task-service';
-import TaskList, { TaskPager, parsePageParam } from './TaskList';
+import TaskList, { TaskPager } from './TaskList';
+import { parsePageParam } from './page-param';
 
 export const metadata: Metadata = { title: '我的任务 · 片段标注' };
 
@@ -33,7 +34,12 @@ export default async function TasksPage({ searchParams }: Props) {
         </p>
       </header>
 
-      <TaskList items={result.items} showTenant={false} timezone={user.timezone} />
+      <TaskList
+        items={result.items}
+        showTenant={false}
+        timezone={user.timezone}
+        currentUser={{ id: user.id, displayName: user.displayName }}
+      />
       <TaskPager
         total={result.total}
         page={result.page}

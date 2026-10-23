@@ -1,5 +1,5 @@
 /**
- * tasks 表查询：管理员全量视图与标注员收窄视图。
+ * tasks 表读写：管理员全量视图、标注员收窄视图，以及可原子判定输赢的领取与归还。
  *
  * 两条视图各自写死 WHERE，不用 `(? IS NULL OR tenant_id = ?)` 在一条 SQL 里切换角色：
  * 那样标注员的 tenant_id 一旦为 NULL，视图会静默升级为全量，而 SQL 不会报错。
@@ -106,6 +106,62 @@ export function countByTenantIds(db: DB, tenantIds: string[]): Map<string, numbe
 
   for (const row of rows) counts.set(row.tenant_id, row.n);
   return counts;
+}
+
+/**
+ * 带租户条件的单条查询。
+ *
+ * 租户条件写进 WHERE 而非「查出来再判」：后者会让「存在于别的租户」与「根本不存在」
+ * 在调用方走同一条分支，一旦两个分支的状态码不同就泄漏了存在性。
+ */
+export function findByIdForTenant(db: DB, taskId: string, tenantId: string): TaskRow | null {
+  const row = db
+    .prepare(`${TASK_SELECT} WHERE t.id = ? AND t.tenant_id = ?`)
+    .get(taskId, tenantId) as TaskRow | undefined;
+  return row ?? null;
+}
+
+/**
+ * 仅当任务仍为 pending 且属于该租户时改为 claimed。返回是否命中。
+ *
+ * 命中与否只能靠 changes 判定：先查状态再无条件 UPDATE，两人同时领取时都会通过检查，
+ * 后写的覆盖先写的。单条 UPDATE 自带原子性，无需外层事务。
+ */
+export function claimIfPending(
+  db: DB,
+  args: { taskId: string; tenantId: string; userId: string; nowMs: number },
+): boolean {
+  const result = db
+    .prepare(
+      `UPDATE tasks
+          SET status = 'claimed', claimed_by = ?, claimed_at = ?
+        WHERE id = ? AND tenant_id = ? AND status = 'pending'`,
+    )
+    .run(args.userId, args.nowMs, args.taskId, args.tenantId);
+  return result.changes > 0;
+}
+
+/**
+ * 仅当任务由该用户领取且状态为 claimed 时归还。返回是否命中。
+ *
+ * claimed_by 与 status 两个谓词都不能省：
+ * 少 claimed_by，同租户任何人都能把别人正在做的任务打回池子；
+ * 少 status，已提交的任务会被退回 pending，账本与状态脱节。
+ *
+ * nowMs 在契约里保留但此处不用：归还只把 claimed_at 清空，不记归还时间。
+ */
+export function releaseIfOwned(
+  db: DB,
+  args: { taskId: string; tenantId: string; userId: string; nowMs: number },
+): boolean {
+  const result = db
+    .prepare(
+      `UPDATE tasks
+          SET status = 'pending', claimed_by = NULL, claimed_at = NULL
+        WHERE id = ? AND tenant_id = ? AND claimed_by = ? AND status = 'claimed'`,
+    )
+    .run(args.taskId, args.tenantId, args.userId);
+  return result.changes > 0;
 }
 
 export type TaskInsert = {

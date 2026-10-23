@@ -5,7 +5,8 @@
  */
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import TaskList, { TaskPager, parsePageParam } from '@/app/tasks/TaskList';
+import TaskList, { TaskPager } from '@/app/tasks/TaskList';
+import { parsePageParam } from '@/app/tasks/page-param';
 import { getDb } from '@/lib/server/db';
 import { requireAdmin } from '@/lib/server/guards';
 import { PAGE_SIZE, listTasks } from '@/lib/services/task-service';
@@ -36,7 +37,8 @@ export default async function AdminTasksPage({ searchParams }: Props) {
         </p>
       </header>
 
-      <TaskList items={result.items} showTenant timezone={actor.timezone} />
+      {/* 管理员不参与标注：currentUser 传 null，操作列整列不渲染 */}
+      <TaskList items={result.items} showTenant timezone={actor.timezone} currentUser={null} />
       <TaskPager
         total={result.total}
         page={result.page}

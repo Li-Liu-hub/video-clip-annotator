@@ -1,26 +1,29 @@
 /**
- * 任务列表的可见性规则与建任务：按角色分派查询，管理员一次为多个租户建任务。
+ * 任务的可见性规则、建任务，以及标注员的领取与归还。
  *
  * 不 import next/headers —— 身份与连接都由调用方注入，本层可在内存库上单测。
  */
 import { randomBytes } from 'node:crypto';
 import { nowMs, writeTx, type DB } from '@/lib/db';
 import {
+  claimIfPending,
   countAll,
   countByTenantIds,
   countForAnnotator,
+  findByIdForTenant,
   insertTask,
   listAll,
   listForAnnotator,
+  releaseIfOwned,
   type ListOptions,
   type TaskRow,
 } from '@/lib/db/repos/task-repo';
 import { findById as findVideoById } from '@/lib/db/repos/video-repo';
 import { findById as findTenantById, listAll as listAllTenants } from '@/lib/db/repos/tenant-repo';
-import { ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors';
+import { ForbiddenError, NotFoundError, StateConflictError, ValidationError } from '@/lib/errors';
 import { MAX_TITLE_LENGTH } from '@/lib/task-limits';
 import { writeAudit } from './audit-service';
-import { isTenantUser, type SessionUser } from './auth-service';
+import { isTenantUser, type SessionUser, type TenantUser } from './auth-service';
 
 export type { TaskRow } from '@/lib/db/repos/task-repo';
 
@@ -153,5 +156,87 @@ export function createTasks(
       return id;
     });
     return { ids };
+  });
+}
+
+const TASK_NOT_FOUND_MESSAGE = '任务不存在';
+const CLAIM_CONFLICT_MESSAGE = '这条任务已被其他人领取';
+const ALREADY_CLAIMED_MESSAGE = '你已经领取了这条任务';
+const RELEASE_CONFLICT_MESSAGE = '当前状态不允许归还';
+
+/**
+ * 领取任务：本租户的 pending 任务转到自己名下。返回更新后的行。
+ *
+ * 预查只为把 404 与 409 分开（「id 错了或越权」不同于「来晚了」），
+ * 输赢仍由 claimIfPending 的 changes 判定 —— 先查后改在并发下两人都会通过。
+ * 预查与预查后的更新都带租户条件，跨租户一律 404，不泄漏任务存在性。
+ */
+export function claimTask(db: DB, actor: TenantUser, taskId: string): TaskRow {
+  return writeTx(db, () => {
+    const existing = findByIdForTenant(db, taskId, actor.tenantId);
+    if (!existing) throw new NotFoundError(TASK_NOT_FOUND_MESSAGE);
+
+    const claimed = claimIfPending(db, {
+      taskId,
+      tenantId: actor.tenantId,
+      userId: actor.id,
+      nowMs: nowMs(),
+    });
+    // 区分「自己已领取」与「被别人抢了」：演示与真实使用中，连点按钮比真并发竞争更常见，
+    // 对同一个人说「已被其他人领取」会让人以为数据错了。
+    // 事务拿的是写锁，existing 与上面的 UPDATE 之间不会被其他写事务插入，所以这个判断是准的。
+    if (!claimed) {
+      throw new StateConflictError(
+        existing.claimed_by === actor.id ? ALREADY_CLAIMED_MESSAGE : CLAIM_CONFLICT_MESSAGE,
+      );
+    }
+
+    // 审计与状态跃迁同事务：要么「已在自己名下且有记录」，要么两者都不落库
+    writeAudit(db, {
+      actorId: actor.id,
+      actorRole: 'annotator',
+      tenantId: actor.tenantId,
+      action: 'task.claim',
+      targetType: 'task',
+      targetId: taskId,
+      detail: { previousStatus: 'pending' },
+    });
+
+    // UPDATE 已命中，行必然存在；判空只为收窄类型
+    const updated = findByIdForTenant(db, taskId, actor.tenantId);
+    if (!updated) throw new NotFoundError(TASK_NOT_FOUND_MESSAGE);
+    return updated;
+  });
+}
+
+/**
+ * 归还任务：自己领取且仍为 claimed 的任务退回 pending 池。
+ *
+ * 归属与状态都由 releaseIfOwned 的 WHERE 把关，本层的预查同样带租户条件，
+ * 使「别的租户的任务」落到 404 而不是 409。失败路径不写审计 ——
+ * 否则审计里会堆满「归还失败」，真实操作被淹没。
+ */
+export function releaseTask(db: DB, actor: TenantUser, taskId: string): void {
+  writeTx(db, () => {
+    const existing = findByIdForTenant(db, taskId, actor.tenantId);
+    if (!existing) throw new NotFoundError(TASK_NOT_FOUND_MESSAGE);
+
+    const released = releaseIfOwned(db, {
+      taskId,
+      tenantId: actor.tenantId,
+      userId: actor.id,
+      nowMs: nowMs(),
+    });
+    if (!released) throw new StateConflictError(RELEASE_CONFLICT_MESSAGE);
+
+    writeAudit(db, {
+      actorId: actor.id,
+      actorRole: 'annotator',
+      tenantId: actor.tenantId,
+      action: 'task.release',
+      targetType: 'task',
+      targetId: taskId,
+      detail: { previousStatus: 'claimed' },
+    });
   });
 }
