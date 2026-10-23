@@ -7,7 +7,6 @@ next-env.d.ts
 
 # 运行时数据（数据库与上传的视频）
 data/
-!public/videos/
 
 # 本地环境
 .env*.local

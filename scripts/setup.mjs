@@ -18,9 +18,16 @@ const DATA_DIR = path.join(ROOT, 'data');
 const VIDEO_DIR = path.join(DATA_DIR, 'videos');
 const DB_PATH = process.env.DATABASE_PATH ?? path.join(DATA_DIR, 'app.db');
 const SCHEMA_PATH = path.join(ROOT, 'src', 'lib', 'db', 'schema.sql');
-const VIDEO_SRC = path.join(ROOT, 'public', 'videos', 'demo.mp4');
-const VIDEO_FILE = 'demo.mp4';
-const VIDEO_DURATION_MS = 40_000;
+/**
+ * 种子视频取自真实机器人示教数据（LeRobot，Hugging Face 公开数据集）：
+ * ALOHA 双臂做咖啡 30 秒片段，H.264 640×480，2 MB。
+ *
+ * 素材放 fixtures/ 而非 public/：public 下任何人知道路径就能下载，
+ * 与「视频必须过鉴权路由」的设计冲突。
+ */
+const VIDEO_SRC = path.join(ROOT, 'fixtures', 'videos', 'aloha-coffee.mp4');
+const VIDEO_FILE = 'aloha-coffee.mp4';
+const VIDEO_DURATION_MS = 30_000;
 
 const DAY = 86_400_000;
 const reset = process.argv.includes('--reset');
@@ -75,7 +82,7 @@ fs.mkdirSync(VIDEO_DIR, { recursive: true });
 if (fs.existsSync(VIDEO_SRC)) {
   fs.copyFileSync(VIDEO_SRC, path.join(VIDEO_DIR, VIDEO_FILE));
 } else {
-  console.warn('[setup] 警告：public/videos/demo.mp4 缺失，任务里的视频将无法播放');
+  console.warn(`[setup] 警告：${VIDEO_SRC} 缺失，任务里的视频将无法播放`);
 }
 
 const now = Date.now();

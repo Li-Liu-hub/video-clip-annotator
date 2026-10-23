@@ -124,8 +124,24 @@ if (spec.status === 'submitted') {
 
 ### 视频要复制到运行时目录
 
-`public/videos/demo.mp4` 是随仓库分发的素材；运行时视频存在 `data/videos/`，
+素材在 `fixtures/videos/`，运行时视频存在 `data/videos/`，
 由带鉴权的路由提供（ADR-11）。`setup.mjs` 负责复制。
+
+素材取自 Hugging Face 上 LeRobot 的公开机器人示教数据集：
+
+| 文件 | 来源 | 规格 | 用途 |
+|---|---|---|---|
+| `aloha-coffee.mp4` | `lerobot/aloha_static_coffee` 的 cam_high 前 30 秒 | H.264 640×480 30s 2MB | 种子任务的素材 |
+| `pusht-pushblock.mp4` | `lerobot/pusht` 原始文件 | AV1 96×96 42min 6.9MB | 手工上传测试 |
+
+`aloha-coffee.mp4` 由原始 AV1 转码为 H.264（crf 24 + faststart），
+因为 AV1 在 Safari 上不支持，演示时不能保证播放。
+
+`pusht-pushblock.mp4` **刻意保留原始形态**：它的 moov atom 在文件尾部，
+正是 `duration === Infinity` 的典型场景，用来验证客户端的时长读取兜底逻辑。
+
+素材放 `fixtures/` 而非 `public/`：`public/` 下任何人知道路径即可下载，
+与「视频必须过鉴权路由」的设计冲突。
 
 ### 幂等
 
