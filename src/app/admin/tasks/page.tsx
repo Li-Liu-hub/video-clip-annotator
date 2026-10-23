@@ -4,6 +4,7 @@
  * 表格复用标注员页的 TaskList：两份表格分开写，状态配色与空态迟早不一致。
  */
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import TaskList, { TaskPager, parsePageParam } from '@/app/tasks/TaskList';
 import { getDb } from '@/lib/server/db';
 import { requireAdmin } from '@/lib/server/guards';
@@ -23,7 +24,12 @@ export default async function AdminTasksPage({ searchParams }: Props) {
       <header className="mb-6">
         <div className="flex items-baseline justify-between gap-4">
           <h1 className="text-[20px] font-medium tracking-tight text-ink">任务</h1>
-          <span className="tnum text-[11.5px] text-ink-faint">共 {result.total} 条</span>
+          <div className="flex items-center gap-3">
+            <span className="tnum text-[11.5px] text-ink-faint">共 {result.total} 条</span>
+            <Link href="/admin/tasks/new" className="btn btn-primary">
+              新建任务
+            </Link>
+          </div>
         </div>
         <p className="mt-1.5 text-[12.5px] leading-relaxed text-ink-dim">
           全部租户的任务。标注员只看得到本空间的待领取与自己领取的任务。

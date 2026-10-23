@@ -38,7 +38,7 @@ export default function TaskList({ items, showTenant, timezone }: TaskListProps)
         <table className="w-full min-w-[720px] text-left">
           <thead>
             <tr className="border-b border-line-soft text-[11px] text-ink-faint">
-              <th className="px-4 py-2.5 font-normal">视频</th>
+              <th className="px-4 py-2.5 font-normal">任务</th>
               {showTenant ? <th className="px-3 py-2.5 font-normal">租户</th> : null}
               <th className="px-3 py-2.5 font-normal">时长</th>
               <th className="px-3 py-2.5 font-normal">状态</th>
@@ -55,8 +55,12 @@ export default function TaskList({ items, showTenant, timezone }: TaskListProps)
                   className="border-b border-line-soft transition-colors last:border-0 hover:bg-panel-2/40"
                 >
                   <td className="px-4 py-2.5">
+                    {/* 标题是识别任务的主信息；视频名作副行，因为同一段素材常有多个任务 */}
+                    <div className="max-w-[320px] truncate text-[12.5px] text-ink" title={task.title}>
+                      {task.title}
+                    </div>
                     <div
-                      className="max-w-[320px] truncate text-[12.5px] text-ink"
+                      className="mt-0.5 max-w-[320px] truncate text-[11px] text-ink-faint"
                       title={task.video_filename}
                     >
                       {task.video_filename}
