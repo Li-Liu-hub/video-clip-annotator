@@ -1,11 +1,14 @@
 /** 登录页。已登录的访问者直接跳到各自的工作台，避免重复登录。 */
 import { redirect } from 'next/navigation';
 import { getCurrentUser } from '@/lib/server/current-user';
+import { homePathOf } from '@/lib/server/guards';
 import LoginForm from './LoginForm';
 
 export default async function LoginPage() {
   const user = await getCurrentUser();
-  if (user) redirect(user.role === 'admin' ? '/admin' : '/tasks');
+  // 方向与 requireUser 相反（已登录就离开），复用它会把自己重定向成死循环；
+  // 只借用 homePathOf，角色分流规则仍只有一处
+  if (user) redirect(homePathOf(user));
 
   return (
     <main className="relative flex min-h-screen items-center justify-center overflow-hidden px-6 py-12">

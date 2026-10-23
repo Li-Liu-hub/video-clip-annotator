@@ -1,5 +1,5 @@
 /**
- * 身份体系的唯一实现：密码哈希、凭据校验、会话签发与解析、身份装配。
+ * 身份体系的唯一实现：密码哈希、凭据校验、会话签发与解析、身份装配、角色判定。
  *
  * 不 import next/headers —— 读 cookie 放在 lib/server/current-user，
  * 本层才能在内存库上单测。
@@ -24,6 +24,24 @@ export type SessionUser = {
   tenantName: string | null;
   timezone: string; // 来自 tenants.timezone，管理员为默认值
 };
+
+/** 标注员一定持有租户。管理员与「数据被改坏的标注员」都不满足。 */
+export type TenantUser = SessionUser & { role: 'annotator'; tenantId: string };
+
+/**
+ * 只回答「是否满足」，不承担「必须满足」的断言职责 —— 因此不抛错。
+ * 各调用场景要的 HTTP 状态码不同（页面跳转 / 404 / 500），
+ * 在这里写死一种就等于替调用方决定了失败语义。
+ * 用类型守卫而非布尔函数：窄化后 tenantId 在类型层面即 string，调用方无需每处判空。
+ */
+export function isTenantUser(user: SessionUser): user is TenantUser {
+  // 判 typeof 而非判 null：畸形数据里字段可能缺失（undefined），一道条件覆盖两种情况。
+  // 再排空串：空串不是「没有租户」而是脏数据，放过去会让 WHERE tenant_id = '' 静默返空集，
+  // 比 null 难查得多——null 至少会在判空处暴露。
+  return (
+    user.role === 'annotator' && typeof user.tenantId === 'string' && user.tenantId.length > 0
+  );
+}
 
 export const SESSION_COOKIE = 'vsap_sid';
 export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
