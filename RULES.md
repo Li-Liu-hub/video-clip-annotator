@@ -38,12 +38,14 @@ Reviewer 可撰写反例测试、修改命名与注释；禁止重写业务实�
 ## 分层
 
 ```
-app/ → lib/services/ → lib/db/repos/ → SQLite
+app/ → lib/server/ → lib/services/ → lib/db/repos/ → SQLite
 ```
 
 仅允许向下依赖。
 
 - `app/**` 不 import `lib/db/**`（ESLint 强制）
+- `lib/server/**` 是请求上下文适配层：允许 import `next/headers`、`next/navigation` 与 `@/lib/db` 的 `getDb`；
+  每个文件只做「取请求上下文 → 调 service → 返回」，不写业务判断（该层不可单测，判断写在这里就无人验证）
 - `lib/services/**` 不 import `next/headers`、`next/navigation`
 - SQL 字符串仅允许出现于 `lib/db/repos/**`
 - 事务边界仅在 service 层，repo 不自行 `BEGIN`

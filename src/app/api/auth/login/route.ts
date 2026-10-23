@@ -1,55 +1,76 @@
-/** 登录与登出。失败一律返回同一句话，避免攻击者枚举出哪些用户名存在。 */
+/**
+ * 登录与登出。
+ *
+ * 凭据校验与会话签发都走 auth-service；本文件只负责 HTTP 契约：
+ * 解析请求体、写 / 删 cookie。状态码与文案由 errors.ts 统一决定，
+ * 不在 handler 里另拼一份 401。
+ */
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import { getDb } from '@/lib/db';
-import { createSession, SESSION_COOKIE, verifyPassword, type Role } from '@/lib/auth';
+import { getDb } from '@/lib/server/db';
+import { ValidationError, toErrorResponse } from '@/lib/errors';
+import {
+  authenticate,
+  createSession,
+  destroySession,
+  SESSION_COOKIE,
+  SESSION_TTL_MS,
+} from '@/lib/services/auth-service';
 
-type Row = { id: string; password_hash: string; role: Role };
+const SESSION_TTL_SECONDS = SESSION_TTL_MS / 1000;
+
+type Credentials = { username: string; password: string };
+
+/** 请求体形状在这里定死；字段用 unknown 判定，避免把 any 传进 service。 */
+async function readCredentials(request: Request): Promise<Credentials> {
+  let raw: unknown;
+  try {
+    raw = await request.json();
+  } catch {
+    throw new ValidationError('请求格式错误');
+  }
+  if (typeof raw !== 'object' || raw === null) throw new ValidationError('请求格式错误');
+
+  const body = raw as { username?: unknown; password?: unknown };
+  const username = typeof body.username === 'string' ? body.username.trim() : '';
+  const password = typeof body.password === 'string' ? body.password : '';
+  if (!username || !password) throw new ValidationError('请填写用户名和密码');
+  return { username, password };
+}
+
+/** 前端 LoginForm 只读 `error` 字符串字段，响应体保持这一形状，内容取统一错误映射。 */
+function errorResponse(err: unknown): NextResponse {
+  const { status, body } = toErrorResponse(err);
+  return NextResponse.json({ error: body.error.message }, { status });
+}
 
 export async function POST(request: Request) {
-  let body: { username?: string; password?: string };
   try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: '请求格式错误' }, { status: 400 });
+    const { username, password } = await readCredentials(request);
+
+    const db = getDb();
+    const user = authenticate(db, username, password);
+    const sessionId = createSession(db, user.id);
+
+    const response = NextResponse.json({ ok: true, role: user.role });
+    response.cookies.set(SESSION_COOKIE, sessionId, {
+      httpOnly: true,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: SESSION_TTL_SECONDS,
+      secure: process.env.NODE_ENV === 'production',
+    });
+    return response;
+  } catch (err) {
+    return errorResponse(err);
   }
-
-  const username = (body.username ?? '').trim();
-  const password = body.password ?? '';
-
-  if (!username || !password) {
-    return NextResponse.json({ error: '请填写用户名和密码' }, { status: 400 });
-  }
-
-  const row = getDb()
-    .prepare('SELECT id, password_hash, role FROM users WHERE username = ?')
-    .get(username) as Row | undefined;
-
-  // 用户不存在与密码错误返回同一句话，避免枚举用户名
-  if (!row || !verifyPassword(password, row.password_hash)) {
-    return NextResponse.json({ error: '用户名或密码不正确' }, { status: 401 });
-  }
-
-  const sessionId = createSession(row.id);
-  const response = NextResponse.json({ ok: true, role: row.role });
-
-  response.cookies.set(SESSION_COOKIE, sessionId, {
-    httpOnly: true,
-    sameSite: 'lax',
-    path: '/',
-    maxAge: 60 * 60 * 24 * 7,
-    secure: process.env.NODE_ENV === 'production',
-  });
-
-  return response;
 }
 
 export async function DELETE() {
   const store = await cookies();
-  const sid = store.get(SESSION_COOKIE)?.value;
-  if (sid) {
-    const { destroySession } = await import('@/lib/auth');
-    destroySession(sid);
+  const sessionId = store.get(SESSION_COOKIE)?.value;
+  if (sessionId) {
+    destroySession(getDb(), sessionId);
     store.delete(SESSION_COOKIE);
   }
   return NextResponse.json({ ok: true });

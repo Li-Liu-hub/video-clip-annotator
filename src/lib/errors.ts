@@ -33,6 +33,12 @@ export class AppError extends Error {
   }
 }
 
+export class UnauthorizedError extends AppError {
+  constructor(message = '请先登录') {
+    super('UNAUTHENTICATED', 401, message);
+  }
+}
+
 export class NotFoundError extends AppError {
   constructor(message = '资源不存在') {
     super('NOT_FOUND', 404, message);

@@ -27,7 +27,7 @@ const reset = process.argv.includes('--reset');
 const nid = () => randomBytes(8).toString('hex');
 
 function hashPassword(password) {
-  // 与 src/lib/auth.ts 保持同一格式：scrypt$<salt hex>$<hash hex>
+  // 与 src/lib/services/authService.ts 保持同一格式：scrypt$<salt hex>$<hash hex>
   const salt = randomBytes(16);
   return `scrypt$${salt.toString('hex')}$${scryptSync(password, salt, 64).toString('hex')}`;
 }
