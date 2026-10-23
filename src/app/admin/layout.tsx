@@ -7,10 +7,10 @@
 import Link from 'next/link';
 import { requireAdmin } from '@/lib/server/guards';
 
-/** 只有视频页已实现；其余三项目前用 null 表示「不跳转」。 */
+/** 视频与任务页已实现；统计、审计仍用 null 表示「不跳转」。 */
 const NAV = [
   { href: '/admin/videos', label: '视频' },
-  { href: null, label: '任务' },
+  { href: '/admin/tasks', label: '任务' },
   { href: null, label: '统计' },
   { href: null, label: '审计' },
 ] as const;
