@@ -118,7 +118,8 @@ npm install && npm run dev
 | `npm run build` | 生产构建 |
 | `npm test` | 五组不变量测试 |
 | `npm run lint` | ESLint（含分层依赖规则） |
-| `npm run db:check` | 对运行中的库跑不变量断言 |
+| `npm run db:check` | 对运行中的库跑 14 项不变量断言 |
+| `npm run db:verify-checker` | 对检查器做变异验证（确认它真能抓到问题） |
 | `npm run db:reset` | 重建数据库与种子数据 |
 
 ---
@@ -156,7 +157,7 @@ npm install && npm run dev
 
 | 阶段 | 进度 | 说明 |
 |---|---|---|
-| A 地基 | 2 / 4 | 表结构、连接与事务已完成 |
+| A 地基 | 3 / 4 | 表结构、连接事务、种子与检查器 |
 | B 认证 | 0 / 4 | |
 | C 视频 | 0 / 2 | |
 | D 任务 | 0 / 4 | |

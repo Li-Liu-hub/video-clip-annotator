@@ -10,7 +10,8 @@
     "build": "next build",
     "start": "next start",
     "db:reset": "node scripts/setup.mjs --reset",
-    "db:check": "node scripts/check-integrity.mjs"
+    "db:check": "node scripts/check-invariants.mjs",
+    "db:verify-checker": "node scripts/verify-checker.mjs"
   },
   "dependencies": {
     "next": "^15.5.4",
