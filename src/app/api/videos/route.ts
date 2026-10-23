@@ -47,6 +47,19 @@ function errorResponse(err: unknown): NextResponse {
 }
 
 /**
+ * x-filename 由客户端 encodeURIComponent：HTTP 头只能放 ASCII，中文名直接写会抛错。
+ * 解码失败说明头被手工改坏，退回空串交给 service 的默认名，不让 %E4%.. 进库展示。
+ */
+function decodeFilename(raw: string | null): string {
+  if (!raw) return '';
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return '';
+  }
+}
+
+/**
  * 从头里取出上传参数。filename 只是展示名，不参与落盘路径；
  * 缺 content-length 时按 0 交给 service，实际字节数由流式写入统计。
  */
@@ -63,7 +76,7 @@ function readUploadInput(request: Request): UploadInput {
 
   const declaredSize = Number(request.headers.get('content-length') ?? '');
   return {
-    filename: request.headers.get(FILENAME_HEADER) ?? '',
+    filename: decodeFilename(request.headers.get(FILENAME_HEADER)),
     mimeType: request.headers.get('content-type') ?? '',
     sizeBytes: Number.isFinite(declaredSize) ? declaredSize : 0,
     durationMs,
