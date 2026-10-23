@@ -45,6 +45,15 @@ export function findSessionWithUser(db: DB, sessionId: string, nowMs: number): J
   return (row as JoinedUserRow | undefined) ?? null;
 }
 
+/**
+ * 按 id 取会话行，**不判断是否过期**。
+ * 用于「登录时清理旧会话」这类需要看归属的场景：过期行同样该被清掉。
+ */
+export function findSession(db: DB, sessionId: string): SessionRow | null {
+  const row = db.prepare('SELECT id, user_id, expires_at FROM sessions WHERE id = ?').get(sessionId);
+  return (row as SessionRow | undefined) ?? null;
+}
+
 export function deleteSession(db: DB, sessionId: string): void {
   db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionId);
 }

@@ -12,6 +12,18 @@ const DEMO_ACCOUNTS = [
   { username: 'carol', password: 'demo123', label: '周予安', sub: '标注员 · 北风具身智能', tone: 'plain' },
 ] as const;
 
+/** 登录接口的响应体：成功带 role，失败带 { ok:false, error:{ code, message } }。 */
+type LoginReply = {
+  ok: boolean;
+  role?: 'admin' | 'annotator';
+  error?: { code?: string; message?: string };
+};
+
+/** 文案只取 error.message；响应体格式异常时退回通用文案，不把 undefined 渲染到页面上。 */
+function messageOf(reply: LoginReply): string {
+  return reply.error?.message ?? '登录失败';
+}
+
 export default function LoginForm() {
   const router = useRouter();
   const [username, setUsername] = useState('');
@@ -29,9 +41,9 @@ export default function LoginForm() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: u, password: p }),
       });
-      const data = await res.json();
+      const data = (await res.json()) as LoginReply;
       if (!res.ok) {
-        setError(data.error ?? '登录失败');
+        setError(messageOf(data));
         setBusy(false);
         return;
       }

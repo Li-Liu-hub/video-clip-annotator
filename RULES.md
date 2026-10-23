@@ -104,7 +104,9 @@ throw exists ? new StateConflictError('当前状态不允许该操作') : new No
 - 禁 `enum`，用 `as const` + 联合类型
 - service 签名：`fn(db: DB, actor: SessionUser, input): Result`
 - repo 签名：`fn(db: DB, tenantId: string | null, ...): Row | Row[]`
-- 多表写入须于同一 `writeTx` 内，审计与业务同事务
+- 多表写入须于同一 `writeTx` 内，审计与业务同事务；
+  例外：认证类操作（登录/登出）的审计是**业务提交后的独立旁路写**，失败不得影响主流程
+  （若与 session 写入同事务，审计失败会连带回滚登录，正好违反「审计不阻塞认证」）
 - 魔法数字提为具名常量并注明单位
 
 ## 注释

@@ -33,6 +33,14 @@ export class AppError extends Error {
   }
 }
 
+/**
+ * 401 的错误码用 `UNAUTHENTICATED` 而非 `UNAUTHORIZED`。
+ *
+ * HTTP 状态码叫 401 Unauthorized 是历史遗留（RFC 7235 明说它的实际含义是「缺少有效认证凭据」）。
+ * 若照抄字面用 `UNAUTHORIZED`，它和 `FORBIDDEN` 在名字上就分不清了——
+ * 前端看到一个 UNAUTHORIZED 一个 FORBIDDEN，会以为都是「没权限」。
+ * `UNAUTHENTICATED`（没有身份）与 `FORBIDDEN`（有身份但无权限）才是真正可区分的两个概念。
+ */
 export class UnauthorizedError extends AppError {
   constructor(message = '请先登录') {
     super('UNAUTHENTICATED', 401, message);

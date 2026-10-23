@@ -10,6 +10,7 @@ import { findByUsername, findWithTenantById, type UserWithTenantRow } from '@/li
 import {
   deleteExpired,
   deleteSession,
+  findSession,
   findSessionWithUser,
   insertSession,
 } from '@/lib/db/repos/session-repo';
@@ -120,6 +121,33 @@ export function authenticate(db: DB, username: string, password: string): Sessio
   // 登录是清理过期会话的天然时机，否则 sessions 表只增不减
   purgeExpiredSessions(db, nowMs());
   return toSessionUser(identity);
+}
+
+/**
+ * 登录并为本次会话签发新 id。
+ * staleSessionId 存在时先销毁——防会话固定：不让请求带来的旧 sid 在登录后继续有效。
+ *
+ * 先校验再清旧会话，顺序不可颠倒：反过来的话，攻击者拿错误密码反复调用
+ * 就能把受害者的在线会话挤下线，等于一个不需要口令的踢人接口。
+ */
+export function loginWithFreshSession(
+  db: DB,
+  username: string,
+  password: string,
+  staleSessionId?: string,
+): { user: SessionUser; sessionId: string } {
+  const user = authenticate(db, username, password);
+
+  // 只销毁属于当前登录用户的旧会话。
+  // 否则任何知道他人 sid 的人，都能用自己的账号登录一次把对方踢下线——反复调用即构成 DoS。
+  // 用不过滤过期的 findSession：过期行同样该被清掉。
+  if (staleSessionId) {
+    const stale = findSession(db, staleSessionId);
+    if (stale && stale.user_id === user.id) destroySession(db, staleSessionId);
+  }
+
+  const sessionId = createSession(db, user.id);
+  return { user, sessionId };
 }
 
 /** 签发会话，返回 session id（48 位十六进制）。 */
