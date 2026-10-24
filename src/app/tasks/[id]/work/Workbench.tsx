@@ -135,6 +135,23 @@ export default function Workbench({ task }: Props) {
     setCurrentMs(ms);
   }
 
+  /**
+   * 提交拖拽草案：replacedIndex 为 null 是新建，否则替换那一段。
+   *
+   * 提交后按起点重排：从右往左框选、或把片段拖到别的片段之前，都会打乱数组顺序，
+   * 而时间轴、片段栏与 normalizeSegments 报错下标都以「起点升序」为前提。
+   * E4 接 API 后这里换成写库再刷新。
+   */
+  function commitSegment(draft: Segment, replacedIndex: number | null) {
+    setSegments((prev) => {
+      const next =
+        replacedIndex === null
+          ? [...prev, draft]
+          : prev.map((segment, index) => (index === replacedIndex ? draft : segment));
+      return next.sort((a, b) => a.startMs - b.startMs);
+    });
+  }
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-4 lg:flex-row">
@@ -191,11 +208,17 @@ export default function Workbench({ task }: Props) {
         </aside>
       </div>
 
+      {/*
+        必须取整：video.duration 是浮点秒（实际常为 30.030000686645508），
+        乘 1000 后带小数传下去，拖到片尾的草案边界会是非整数毫秒，
+        E4 的 normalizeSegments 会以 not-integer 拒收 —— 表现为「拖到片尾的片段存不了」。
+      */}
       <Timeline
-        durationMs={durationSec * 1000}
+        durationMs={Math.round(durationSec * 1000)}
         segments={segments}
         videoRef={videoRef}
         onSeek={seekTo}
+        onCommit={commitSegment}
       />
     </div>
   );
