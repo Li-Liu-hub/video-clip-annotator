@@ -76,6 +76,8 @@ export function useShortcuts({
 
       // 用 code 而非 key 判空格：key 的值是 ' '，写起来易错成 'Space' 而静默失效
       if (event.code === 'Space') {
+        // 按住空格会在播放/暂停之间按重复频率抖动 —— 重复事件不是新指令
+        if (event.repeat) return;
         // 不拦默认行为，浏览器会把页面滚一屏：按空格想播放，画面却跑了
         event.preventDefault();
         if (!video) return;
@@ -147,7 +149,20 @@ export function useShortcuts({
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [enabled, videoRef, selectedId, onDeleteSelected, onCreateFromMarks, onEscape, clearMark]);
+    }, [
+    enabled,
+    videoRef,
+    selectedId,
+    // 这两个必须列进来：现在靠「三个内联回调每渲染换身份」让 effect 每次重跑，
+    // 才恰好把新的 durationMs 带进来。哪天把那些回调 useCallback 化，effect 不再重跑，
+    // durationMs 会冻结在首帧的 0 —— 方向键永久失效，且无任何测试会红。
+    durationMs,
+    onSeek,
+    onDeleteSelected,
+    onCreateFromMarks,
+    onEscape,
+    clearMark,
+  ]);
 
   return { markInMs, clearMark };
 }
