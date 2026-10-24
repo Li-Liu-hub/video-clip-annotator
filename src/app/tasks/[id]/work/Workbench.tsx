@@ -8,14 +8,16 @@
  * 不用 blob URL：<video src> 是同源请求，浏览器自动带 session Cookie；
  * 先 fetch 再 createObjectURL 会把整个文件读进内存，并失去 Range，拖动进度条即失效。
  */
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Segment } from '@/lib/segment-interval';
 import { selectionAfterDelete, selectionAfterSave } from '@/lib/segment-selection';
 import type { SegmentRow } from '@/lib/services/segment-service';
+import { SHORTCUT_HINTS, formatShortcutHint } from '@/lib/shortcuts';
 import { formatDuration } from '@/lib/time';
 import type { WorkTask } from '@/lib/services/workbench-service';
 import SegmentList from './SegmentList';
 import Timeline from './Timeline';
+import { useShortcuts } from './use-shortcuts';
 
 function PlayIcon() {
   return (
@@ -97,15 +99,27 @@ export default function Workbench({ task, initialSegments }: Props) {
    */
   const [selectedId, setSelectedId] = useState<string | null>(null);
   /**
-   * 删除在途。不挡的话连点会发两个 DELETE，第二个返回 404，
-   * 用户看到一条「片段不存在」的莫名报错。
+   * 删除在途的片段 id（null 表示没有删除在途）。
+   *
+   * 行身份由这里持有，而不是 SegmentList 自己记：键盘 Delete 不经过列表按钮，
+   * 列表若另存一份「点过哪行」，两处会在「删除中…」落在哪行上打架（O1b）。
+   * 顺便也挡住连点：有 id 在途时不再发第二个 DELETE。
    */
-  const [deleting, setDeletingState] = useState(false);
+  const [deletingId, setDeletingIdState] = useState<string | null>(null);
   /**
-   * 删除在途的同步副本。手势可以先于删除开始（触屏双指、按住鼠标时另一只手按 Enter），
-   * 那时拖拽回调捕获的 deleting 还是 false，读 state 会放行一个注定 404 的 POST。
+   * 删除在途的同步副本。手势可以先于删除开始（触屏双指、按住鼠标时另一只手按 Delete），
+   * 那时拖拽回调捕获的 deletingId 还是 null，读 state 会放行一个注定 404 的 POST。
    */
-  const deletingRef = useRef(false);
+  const deletingIdRef = useRef<string | null>(null);
+  /**
+   * 片段数组的同步副本。
+   *
+   * 拖拽的 onCommit 在 pointerdown 那一刻就被捕获，闭包里的 segments 是按下时的快照；
+   * 拖拽中删除完成后，用它判「被替换的那段还在不在」等于没判 —— 必须先看最新值（O5）。
+   */
+  const segmentsRef = useRef<SegmentRow[]>(segments);
+  /** 拖拽是否在途。Escape 的优先级要用到它：拖拽中只取消拖拽，不清入点。 */
+  const draggingRef = useRef(false);
   /**
    * 选中 id 的最新值。
    *
@@ -127,9 +141,9 @@ export default function Workbench({ task, initialSegments }: Props) {
    * 只用 ref，按钮永远不禁用、也没有「保存中…」；只用 state，事件回调里读到的是过期值。
    * 两处必须同进同退，所以不给外部留单独的 setter。
    */
-  function setDeleting(next: boolean) {
-    deletingRef.current = next;
-    setDeletingState(next);
+  function setDeletingId(next: string | null) {
+    deletingIdRef.current = next;
+    setDeletingIdState(next);
   }
 
   function setCommitting(next: boolean) {
@@ -200,6 +214,51 @@ export default function Workbench({ task, initialSegments }: Props) {
     return () => clearTimeout(timer);
   }, [saveError]);
 
+  /**
+   * segments 的唯一写入口：ref 与 state 同写。
+   *
+   * 不用 useEffect 镜像 —— 那样「删除成功」到「effect 跑完」之间有窗口，
+   * 期间拖拽松手会读到旧数组，判出「被删的那段还在」，发一个注定 404 的替换请求（O5）。
+   * 写透式把窗口从「一次渲染」缩到零。
+   */
+  const applySegments = useCallback((next: SegmentRow[]) => {
+    segmentsRef.current = next;
+    setSegments(next);
+  }, []);
+
+  /** 拖拽起止写进 ref。useCallback 保持身份稳定，免得 Timeline 的 effect 每次渲染都重跑。 */
+  const handleDragActiveChange = useCallback((active: boolean) => {
+    draggingRef.current = active;
+  }, []);
+
+  const { markInMs, clearMark } = useShortcuts({
+    /**
+     * 工作台只对 claimed 任务渲染（page 里 getWorkTask 已挡掉其余状态），此处恒为真。
+     * E8 的只读回顾接手后按状态传：false 时整组快捷键不绑，只读任务按 Delete 无效。
+     */
+    enabled: task.status === 'claimed',
+    videoRef,
+    selectedId,
+    // 与时间轴同一把尺子：不用 video.duration，moov 在尾部的 mp4 会读到 Infinity
+    durationMs: Math.round(durationSec * 1000),
+    onSeek: seekTo,
+    // 选中在 hook 里已判过非空；这里再取一次只是为了让类型收窄
+    onDeleteSelected: () => {
+      if (selectedId !== null) void removeSegment(selectedId);
+    },
+    // 打字机打出来的区间没有「替换谁」，一律走新建
+    onCreateFromMarks: (range) => void commitSegment(range, null),
+    onEscape: () => {
+      // 拖拽中由拖拽状态机自己收尾，这里不清入点 —— Esc 一次只做一件事。
+      //
+      // 成立的依据是：draggingRef 只在拖拽状态变化的 effect 里翻转，
+      // 而同一次 keydown 派发期间不会跑 effect，所以本回调读到的值
+      // 与「此刻是否在拖」一致，与两个监听的注册顺序无关。
+      if (draggingRef.current) return;
+      clearMark();
+    },
+  });
+
   function togglePlay() {
     const video = videoRef.current;
     if (!video) return;
@@ -237,10 +296,13 @@ export default function Workbench({ task, initialSegments }: Props) {
    * 迁移只在「删的正是选中项」时做：删别的行也改选中，等于把用户的焦点悄悄拽走。
    */
   async function removeSegment(id: string) {
-    // 读 ref 而非 state：删除按钮虽然会被 busy 禁用，但同一次渲染内的连点仍会进到这里
-    if (deletingRef.current) return;
+    // 读 ref 而非 state：删除按钮虽会被 busy 禁用，但键盘 Delete 与同帧连点仍会进到这里
+    if (deletingIdRef.current !== null) return;
+    // 提交在途时同样不删：按钮此时是 disabled，键盘得跟按钮一个口径，
+    // 否则 DELETE 与「替换 X」的 POST 赛跑，后到的那个必然 404
+    if (committingRef.current) return;
     setSaveError(null);
-    setDeleting(true);
+    setDeletingId(id);
     try {
       const response = await fetch(`/api/tasks/${task.id}/segments/${id}`, { method: 'DELETE' });
       if (!response.ok) {
@@ -248,7 +310,7 @@ export default function Workbench({ task, initialSegments }: Props) {
         setSaveError(readErrorMessage(payload));
         return;
       }
-      setSegments((prev) => prev.filter((row) => row.id !== id));
+      applySegments(segmentsRef.current.filter((row) => row.id !== id));
       // 迁移判定抽在纯函数里：删的不是选中项时必须一动不动，
       // 这个条件写在组件里就没人守得住（见 segment-selection 的注释）
       changeSelection(selectionAfterDelete(selectedIdRef.current, id, segments));
@@ -256,26 +318,46 @@ export default function Workbench({ task, initialSegments }: Props) {
       // 断网或响应不是 JSON：本地数组保持原样，服务端仍是唯一真值
       setSaveError(GENERIC_SAVE_FAILED);
     } finally {
-      setDeleting(false);
+      setDeletingId(null);
     }
   }
 
   /**
-   * 提交拖拽草案：replacedIndex 为 null 是新建，否则替换那一段。
+   * 提交拖拽草案：replacedId 为 null 是新建，否则替换那一段。
    *
    * 只有服务端返回成功才改本地数组：失败时若先乐观更新，界面会显示一个刷新后消失的片段。
    * 替换会换 id（服务端先删后插），所以按被替换项的 id 移除，再按 startMs 重排 ——
    * 从右往左框选、或把片段拖到别的片段之前都会打乱顺序，
    * 而时间轴与 normalizeSegments 的下标都以「起点升序」为前提。
    */
-  async function commitSegment(draft: Segment, replacedIndex: number | null) {
+  async function commitSegment(draft: Segment, replacedId: string | null) {
     // 删除在途时不允许提交：DELETE 用的是点下去那一刻的 id，
     // 若这里再发一个「替换 X」，X 可能已经被删掉，必然 404 且提示无法理解。
-    // 读 ref 而非 state：拖拽回调在 pointerdown 就被捕获，手势先于删除开始时闭包里是过期 false
-    if (deletingRef.current) return;
+    // 读 ref 而非 state：拖拽回调在 pointerdown 就被捕获，手势先于删除开始时闭包里还是旧值
+    if (deletingIdRef.current !== null) {
+      // 静默 return 会让用户「按了 O / 松了手，什么都没有」。
+      // 这类拦截不是错误，但必须给出口，否则看起来像功能坏了
+      setSaveError('正在删除片段，请稍候再试');
+      return;
+    }
     // 提交之间互斥：RTT 内连拖同一段，第二次带的还是第一次的旧 id，同样 404
-    if (committingRef.current) return;
-    const replaced = replacedIndex === null ? null : segments[replacedIndex] ?? null;
+    if (committingRef.current) {
+      setSaveError('上一个片段正在保存，请稍候');
+      return;
+    }
+    /**
+     * 被替换的那段是否还在。
+     *
+     * 读 ref 而非闭包里的 segments：拖拽的 onCommit 在 pointerdown 那一刻就被捕获，
+     * 闭包数组里可能还留着刚删掉的那一段，用它判存在性等于没判（O5）。
+     * 不在就放弃 —— 发出去只会拿到一个 404，用户看到「片段不存在」却查不到来源。
+     */
+    if (replacedId !== null && !segmentsRef.current.some((row) => row.id === replacedId)) {
+      // 拖拽期间这一段被删掉了（另一只手按了 Delete）。
+      // 降级为新建是错的：用户以为在挪一段，实际会多出一段。
+      setSaveError('这一段已被删除，请重新标注');
+      return;
+    }
 
     setSaveError(null);
     setCommitting(true);
@@ -286,7 +368,7 @@ export default function Workbench({ task, initialSegments }: Props) {
         body: JSON.stringify({
           startMs: draft.startMs,
           endMs: draft.endMs,
-          replaces: replaced?.id ?? null,
+          replaces: replacedId,
         }),
       });
       // 先解析再判 ok：错误体的 message 是唯一能给用户的线索（重叠、越界、任务已被提交）
@@ -301,15 +383,12 @@ export default function Workbench({ task, initialSegments }: Props) {
         setSaveError(GENERIC_SAVE_FAILED);
         return;
       }
-      setSegments((prev) => {
-        const kept = replaced ? prev.filter((row) => row.id !== replaced.id) : prev;
-        return [...kept, saved].sort((a, b) => a.startMs - b.startMs);
-      });
+      const prev = segmentsRef.current;
+      const kept = replacedId === null ? prev : prev.filter((row) => row.id !== replacedId);
+      applySegments([...kept, saved].sort((a, b) => a.startMs - b.startMs));
       // 数组更新与选中迁移必须一起做：只更新数组的话，selectedId 指向一个已不存在的 id，
       // 列表与时间轴都不再高亮，用户会以为选中丢了。判定同样抽在纯函数里。
-      changeSelection(
-        selectionAfterSave(selectedIdRef.current, replaced?.id ?? null, saved.id),
-      );
+      changeSelection(selectionAfterSave(selectedIdRef.current, replacedId, saved.id));
     } catch {
       // 断网、响应不是 JSON：本地数组保持原样，用户只看得到提示
       setSaveError(GENERIC_SAVE_FAILED);
@@ -372,9 +451,11 @@ export default function Workbench({ task, initialSegments }: Props) {
           <SegmentList
             segments={segments}
             selectedId={selectedId}
+            // 行身份只有这一份：键盘与鼠标删除都写它，「删除中…」不会再落错行
+            deletingId={deletingId}
             onSelect={selectSegment}
             onDelete={removeSegment}
-            busy={deleting || committing}
+            busy={deletingId !== null || committing}
           />
         </aside>
       </div>
@@ -400,9 +481,17 @@ export default function Workbench({ task, initialSegments }: Props) {
         onSeek={seekTo}
         onCommit={commitSegment}
         selectedId={selectedId}
+        markInMs={markInMs}
+        onDragActiveChange={handleDragActiveChange}
         // 时间轴的点击已经由 E3 的状态机 seek 过，这里只接选中，不再 seek 一次
         onSelect={changeSelection}
       />
+
+      {/* 键位提示常驻页脚：快捷键不写在界面上，用户永远不知道有 I / O。
+          文案来自 SHORTCUT_HINTS，单测锁住它不漂移 */}
+      <p className="px-1 text-[11px] leading-relaxed text-ink-faint">
+        {SHORTCUT_HINTS.map(formatShortcutHint).join(' · ')}
+      </p>
     </div>
   );
 }

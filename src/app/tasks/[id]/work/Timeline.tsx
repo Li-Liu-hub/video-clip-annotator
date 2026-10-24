@@ -32,10 +32,17 @@ type Props = {
   segments: SegmentRow[];
   videoRef: RefObject<HTMLVideoElement | null>;
   onSeek: (ms: number) => void;
-  onCommit: (draft: Segment, replacedIndex: number | null) => void;
+  onCommit: (draft: Segment, replacedId: string | null) => void;
   selectedId?: string | null;
+  /** 入点（毫秒），null 表示未打点。画成竖线，与播放头区分。 */
+  markInMs?: number | null;
   /** 点中色块即选中；是否 seek 由 E3 的阈值状态机决定，这里不重复 seek */
   onSelect?: (id: string) => void;
+  /**
+   * 拖拽起止通知。Escape 的优先级要用到它：拖拽中只取消拖拽，不清入点。
+   * 拖拽状态机自己持有 drag 状态，父组件拿不到，只能由这里上报。
+   */
+  onDragActiveChange?: (active: boolean) => void;
 };
 
 /**
@@ -64,7 +71,9 @@ export default function Timeline({
   onSeek,
   onCommit,
   selectedId,
+  markInMs,
   onSelect,
+  onDragActiveChange,
 }: Props) {
   const trackRef = useRef<HTMLDivElement>(null);
   const headRef = useRef<HTMLDivElement>(null);
@@ -115,6 +124,16 @@ export default function Timeline({
   }, []);
 
   /**
+   * 上报拖拽起止。
+   *
+   * 'pending' 也算在途：按下后尚未过阈值时，Escape 仍该由状态机取消这次手势，
+   * 而不是顺手把入点清掉。
+   */
+  useEffect(() => {
+    onDragActiveChange?.(drag.kind !== 'idle');
+  }, [drag.kind, onDragActiveChange]);
+
+  /**
    * 一切 pointerdown 都是拖拽的起点，因此在这里暂停：拖动中播放头继续走，
    * 标注员会一边拖一边看到画面在动，松手时 currentTime 已跑到别处。
    * 松手后不自动恢复 —— 标注员接下来要检查刚标的片段，自动播放反而干扰。
@@ -122,15 +141,11 @@ export default function Timeline({
    * 点击定位也由此处发出（状态机里位移不足阈值时走 onSeek），不再挂 onClick：
    * 两套入口会让一次点击 seek 两次，落点还差一个阈值像素。
    */
-  function handlePointerDown(
-    event: ReactPointerEvent<HTMLDivElement>,
-    hit: SegmentRow | null,
-    hitIndex: number,
-  ) {
+  function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>, hit: SegmentRow | null) {
     // 右键菜单不该暂停视频；状态机内部也拦了 button，这里先拦是为了连 pause 都不发生
     if (event.button !== 0) return;
     videoRef.current?.pause();
-    onPointerDown(event, hit, hitIndex);
+    onPointerDown(event, hit);
   }
 
   const ready = durationMs > 0;
@@ -183,7 +198,7 @@ export default function Timeline({
 
       <div
         ref={trackRef}
-        onPointerDown={(event) => handlePointerDown(event, null, -1)}
+        onPointerDown={(event) => handlePointerDown(event, null)}
         // touch-none：触屏上让轨道自己吃掉手势，否则系统滚动会打断拖拽
         // 拖拽中整条轨道统一 grabbing：指针已被轨道捕获，逐块判断光标只会闪烁
         className={`relative mt-1.5 h-12 touch-none rounded-md bg-panel-2 ${
@@ -191,7 +206,7 @@ export default function Timeline({
         }`}
       >
         {ready
-          ? segments.map((segment, index) => {
+          ? segments.map((segment) => {
               const widthPx =
                 durationMs > 0 ? ((segment.endMs - segment.startMs) / durationMs) * trackWidthPx : 0;
               // 与 resolveMode 的判据完全一致：窄块只认平移，于是也不显示边缘光标。
@@ -209,7 +224,7 @@ export default function Timeline({
                     event.stopPropagation();
                     // 按下即选中，与列表同一套 id；拖拽时也顺带把焦点落到正在拖的这段
                     onSelect?.(segment.id);
-                    handlePointerDown(event, segment, index);
+                    handlePointerDown(event, segment);
                   }}
                   // 百分比定位：窗口 resize 时由 CSS 自己重算。
                   // minWidth 兜住极短片段：42 分钟视频里 200ms 的色块宽度趋近 0，看不见会被当成没标。
@@ -270,6 +285,16 @@ export default function Timeline({
           >
             {draftHint(draft, overlay.verdict)}
           </div>
+        ) : null}
+
+        {/* 入点：只存状态不画，用户按了 I 没有任何反馈，会怀疑没生效。
+            warn 色与播放头的 ink 色区分开，两者重叠时仍能看出是两条线。
+            画在播放头之前：播放头常在最上层，竖线不该盖住它 */}
+        {ready && typeof markInMs === 'number' ? (
+          <div
+            style={{ left: `${(markInMs / durationMs) * 100}%` }}
+            className="pointer-events-none absolute top-0 bottom-0 w-0.5 -translate-x-1/2 bg-warn"
+          />
         ) : null}
 
         {/* 播放头：初始位置由 rAF 接管，这里给 0% 只是避免首帧出现在未定位处 */}

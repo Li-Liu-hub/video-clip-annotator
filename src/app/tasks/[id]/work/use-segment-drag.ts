@@ -54,8 +54,9 @@ export type DragOverlay = {
 type Args = {
   trackRef: RefObject<HTMLDivElement | null>;
   durationMs: number;
-  segments: readonly Segment[];
-  onCommit: (draft: Segment, replacedIndex: number | null) => void;
+  /** 带 id：排除被拖那一段要按 id 而不是下标（删除允许在拖拽中完成） */
+  segments: readonly DraggableSegment[];
+  onCommit: (draft: Segment, replacedId: string | null) => void;
   onSeek: (ms: number) => void;
 };
 
@@ -95,7 +96,7 @@ export function useSegmentDrag({
   useEffect(() => () => cleanupRef.current?.(), []);
 
   const onPointerDown = useCallback<OnPointerDown>(
-    (event, hit, hitIndex) => {
+    (event, hit) => {
       // 只响应主键：右键菜单与中键滚动不该起拖拽。触摸的 button 同样是 0
       if (event.button !== 0) return;
       // 已有手势在途时忽略新的 pointerdown。
@@ -125,8 +126,9 @@ export function useSegmentDrag({
       const mode: DragMode = hit ? resolveMode(hit, startX, rect, durationMs) : 'create';
       const anchorMs = ratioToMs((startX - rect.left) / rect.width, durationMs);
       const origin = hit ? { startMs: hit.startMs, endMs: hit.endMs } : null;
-      // 快照「其余片段」：拖拽期间不写 segments，排除原片段才谈得上重叠判定
-      const others = hitIndex >= 0 ? segments.filter((_, i) => i !== hitIndex) : segments;
+      // 快照「其余片段」：拖拽期间不写 segments，排除原片段才谈得上重叠判定。
+      // 按 id 排除而非下标：删除允许在拖拽中完成，下标会指向另一个片段
+      const others = hit ? segments.filter((segment) => segment.id !== hit.id) : segments;
 
       let started = false;
       let lastDraft: Segment | null = null;
@@ -184,7 +186,9 @@ export function useSegmentDrag({
         // 复用最后一帧的 verdict，不在这里再算一次：提示条写着「合格」却因重算而提交失败
         // （或反之）是最难解释的一类不一致，一处判定只该有一个结论
         if (lastDraft && lastVerdict?.kind === 'ok') {
-          onCommit(lastDraft, hitIndex >= 0 ? hitIndex : null);
+          // 传 id 而非下标（O4/O5）：拖拽期间被拖的那段可能已被删除，
+          // 下标在那一刻指向的是别人，提交会带一个不存在的 replaces
+          onCommit(lastDraft, hit?.id ?? null);
         }
       }
 
@@ -233,9 +237,8 @@ export function useSegmentDrag({
  */
 export type DraggableSegment = Segment & { id: string };
 
-/** 命中色块时传该片段与其下标；空白处传 null 与 -1。 */
+/** 命中色块时传该片段；空白处传 null（走新建）。 */
 type OnPointerDown = (
   event: ReactPointerEvent<HTMLDivElement>,
   hit: DraggableSegment | null,
-  hitIndex: number,
 ) => void;
