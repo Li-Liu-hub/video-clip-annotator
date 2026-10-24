@@ -114,8 +114,13 @@ function requireReadableTask(db: DB, actor: TenantUser, taskId: string): TaskRow
   return task;
 }
 
-/** 归属 + 状态必须是 claimed。写路径用它：已提交 / 已退回的任务改删片段是 409，不是 404。 */
-function requireWritableTask(db: DB, actor: TenantUser, taskId: string): TaskRow {
+/**
+ * 归属 + 状态必须是 claimed。写的入口都用它（片段增删改、提交）：
+ * 已提交 / 已退回的任务再写是 409，不是 404。
+ *
+ * 导出而非各写一份：提交也要判同一条规则，抄一遍就会在下次改状态机时漏改一处。
+ */
+export function requireWritableTask(db: DB, actor: TenantUser, taskId: string): TaskRow {
   // 委托 owned 而非 readable：rejected 的归属是成立的（claimed_by 仍是本人），
   // 它的问题是状态不允许改 —— 那是 409 该说的话，不是 404
   const task = requireOwnedTask(db, actor, taskId);

@@ -225,6 +225,31 @@ export function rejectIfSubmitted(db: DB, args: { taskId: string; reason: string
   return result.changes > 0;
 }
 
+/**
+ * 仅当任务由该用户领取且仍为 claimed 时改为 submitted。返回是否命中。
+ *
+ * claimed_by 与 status 都要进 WHERE：少 claimed_by，同租户任何人都能把别人的任务提交掉；
+ * 少 status，「同时点两次提交」两次都会命中，写出两条提交与两条账本。
+ *
+ * first_submitted_at 用 COALESCE 保留首次值 —— 退回后重新提交不该改它，
+ * 「任务从分配到交付用了多久」才不随重交次数漂移。
+ */
+export function submitIfClaimed(
+  db: DB,
+  args: { taskId: string; tenantId: string; userId: string; nowMs: number },
+): boolean {
+  const result = db
+    .prepare(
+      `UPDATE tasks
+          SET status = 'submitted', first_submitted_at = COALESCE(first_submitted_at, ?),
+      /* 重新提交时清掉上一轮退回的原因，否则 submitted 行上会挂着过期理由 */
+      reject_reason = NULL
+        WHERE id = ? AND tenant_id = ? AND claimed_by = ? AND status = 'claimed'`,
+    )
+    .run(args.nowMs, args.taskId, args.tenantId, args.userId);
+  return result.changes > 0;
+}
+
 export type TaskInsert = {
   id: string;
   tenantId: string;
