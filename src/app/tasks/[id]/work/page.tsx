@@ -11,6 +11,7 @@ import { NotFoundError } from '@/lib/errors';
 import { getDb } from '@/lib/server/db';
 import { requireUser } from '@/lib/server/guards';
 import { isTenantUser, type TenantUser } from '@/lib/services/auth-service';
+import { listSegments, type SegmentRow } from '@/lib/services/segment-service';
 import { getWorkTask, type WorkTask } from '@/lib/services/workbench-service';
 import Workbench from './Workbench';
 
@@ -28,6 +29,14 @@ function loadWorkTask(user: TenantUser, taskId: string): WorkTask {
   }
 }
 
+/**
+ * 首屏片段：与任务同一次请求取，避免工作台挂载后再打一次接口。
+ * getWorkTask 已确认「本人领取且 claimed」，这里不会再有归属失败。
+ */
+function loadSegments(user: TenantUser, taskId: string): SegmentRow[] {
+  return listSegments(getDb(), user, taskId);
+}
+
 export default async function WorkPage({ params }: Props) {
   const user = await requireUser();
   // 管理员不参与标注，工作台对他没有入口价值：与 /tasks 一致回管理台，而不是伪装成 404
@@ -37,6 +46,7 @@ export default async function WorkPage({ params }: Props) {
 
   const { id } = await params;
   const task = loadWorkTask(user, id);
+  const segments = loadSegments(user, id);
 
   return (
     <div className="mx-auto max-w-[1180px] px-6 py-7">
@@ -59,7 +69,8 @@ export default async function WorkPage({ params }: Props) {
         ) : null}
       </header>
 
-      <Workbench task={task} />
+      {/* key 绑任务 id：换任务时组件重建，useState 的初值才会重新取服务端片段 */}
+      <Workbench key={task.id} task={task} initialSegments={segments} />
     </div>
   );
 }

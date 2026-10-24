@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * 工作台播放器：受控 <video> + 自绘播放控件，下方挂时间轴，右侧片段栏留占位。
+ * 工作台播放器：受控 <video> + 自绘播放控件，下方挂时间轴，右侧片段栏显示数量。
  *
  * 不用原生 controls：时间轴要与播放头共用「当前时间 / 总时长 / 是否在播」，
  * 原生控件把这些状态关在浏览器内部，取不到就只能整块重写。
@@ -10,6 +10,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import type { Segment } from '@/lib/segment-interval';
+import type { SegmentRow } from '@/lib/services/segment-service';
 import { formatDuration } from '@/lib/time';
 import type { WorkTask } from '@/lib/services/workbench-service';
 import Timeline from './Timeline';
@@ -31,21 +32,49 @@ function PauseIcon() {
   );
 }
 
-type Props = { task: WorkTask };
+type Props = { task: WorkTask; initialSegments: SegmentRow[] };
 
-// E4 接入真实片段后删除
-/** 演示片段：工作台还没有片段来源（E4 才做 CRUD），?demo=1 时用它验证时间轴渲染。 */
-const DEMO_SEGMENTS: Segment[] = [
-  { startMs: 1200, endMs: 4600 },
-  { startMs: 7200, endMs: 12800 },
-  { startMs: 15400, endMs: 17200 },
-];
+/** 失败提示的存活时间：够看清一句话，又不会在连续标注时一直挡着时间轴。 */
+const ERROR_VISIBLE_MS = 3000;
 
-export default function Workbench({ task }: Props) {
+const GENERIC_SAVE_FAILED = '保存失败，请检查网络后重试';
+
+/** 只认契约里的四个字段；服务端多给的字段一律不带进本地状态。 */
+function readSegment(payload: unknown): SegmentRow | null {
+  if (typeof payload !== 'object' || payload === null) return null;
+  const { segment } = payload as Record<string, unknown>;
+  if (typeof segment !== 'object' || segment === null) return null;
+
+  const row = segment as Record<string, unknown>;
+  if (typeof row.id !== 'string' || typeof row.startMs !== 'number' || typeof row.endMs !== 'number') {
+    return null;
+  }
+  return {
+    id: row.id,
+    startMs: row.startMs,
+    endMs: row.endMs,
+    label: typeof row.label === 'string' ? row.label : null,
+  };
+}
+
+/** 错误体是 { error: { message } }；解不出来就用通用文案，绝不把整段 JSON 显示给用户。 */
+function readErrorMessage(payload: unknown): string {
+  if (typeof payload !== 'object' || payload === null) return GENERIC_SAVE_FAILED;
+  const { error } = payload as Record<string, unknown>;
+  if (typeof error !== 'object' || error === null) return GENERIC_SAVE_FAILED;
+  const { message } = error as Record<string, unknown>;
+  return typeof message === 'string' && message.length > 0 ? message : GENERIC_SAVE_FAILED;
+}
+
+export default function Workbench({ task, initialSegments }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(false);
   const [currentMs, setCurrentMs] = useState(0);
-  const [segments, setSegments] = useState<Segment[]>([]);
+  /** 首屏来自服务端，之后以接口返回为准 —— 本地只是服务器状态的副本。 */
+  const [segments, setSegments] = useState<SegmentRow[]>(initialSegments);
+  /** 提交中只挡一小条提示，不做全屏遮罩：遮罩会打断正在进行的标注。 */
+  const [committing, setCommitting] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   /** 只接纳有限值；null 表示还没读到 metadata，或读到的是 Infinity */
   const [mediaDurationSec, setMediaDurationSec] = useState<number | null>(null);
   /** 视频流加载失败。没有这个开关，黑屏页面无法区分「没加载完」与「文件坏了」。 */
@@ -108,13 +137,11 @@ export default function Workbench({ task }: Props) {
   }, [task.id]);
 
   useEffect(() => {
-    // E4 接入真实片段后删除
-    // 读 location 而非 useSearchParams：这个 demo 开关只临时存在一个功能点，
-    // 不值得为它在客户端组件里引入 Suspense 边界
-    if (new URLSearchParams(window.location.search).get('demo') === '1') {
-      setSegments(DEMO_SEGMENTS);
-    }
-  }, []);
+    if (!saveError) return;
+    // 3 秒后自动消失。下一次提交会先把 saveError 置空，定时器被清理，提示不会堆叠。
+    const timer = setTimeout(() => setSaveError(null), ERROR_VISIBLE_MS);
+    return () => clearTimeout(timer);
+  }, [saveError]);
 
   function togglePlay() {
     const video = videoRef.current;
@@ -138,18 +165,48 @@ export default function Workbench({ task }: Props) {
   /**
    * 提交拖拽草案：replacedIndex 为 null 是新建，否则替换那一段。
    *
-   * 提交后按起点重排：从右往左框选、或把片段拖到别的片段之前，都会打乱数组顺序，
-   * 而时间轴、片段栏与 normalizeSegments 报错下标都以「起点升序」为前提。
-   * E4 接 API 后这里换成写库再刷新。
+   * 只有服务端返回成功才改本地数组：失败时若先乐观更新，界面会显示一个刷新后消失的片段。
+   * 替换会换 id（服务端先删后插），所以按被替换项的 id 移除，再按 startMs 重排 ——
+   * 从右往左框选、或把片段拖到别的片段之前都会打乱顺序，
+   * 而时间轴与 normalizeSegments 的下标都以「起点升序」为前提。
    */
-  function commitSegment(draft: Segment, replacedIndex: number | null) {
-    setSegments((prev) => {
-      const next =
-        replacedIndex === null
-          ? [...prev, draft]
-          : prev.map((segment, index) => (index === replacedIndex ? draft : segment));
-      return next.sort((a, b) => a.startMs - b.startMs);
-    });
+  async function commitSegment(draft: Segment, replacedIndex: number | null) {
+    const replaced = replacedIndex === null ? null : segments[replacedIndex] ?? null;
+
+    setSaveError(null);
+    setCommitting(true);
+    try {
+      const response = await fetch(`/api/tasks/${task.id}/segments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          startMs: draft.startMs,
+          endMs: draft.endMs,
+          replaces: replaced?.id ?? null,
+        }),
+      });
+      // 先解析再判 ok：错误体的 message 是唯一能给用户的线索（重叠、越界、任务已被提交）
+      const payload: unknown = await response.json();
+      if (!response.ok) {
+        setSaveError(readErrorMessage(payload));
+        return;
+      }
+
+      const saved = readSegment(payload);
+      if (!saved) {
+        setSaveError(GENERIC_SAVE_FAILED);
+        return;
+      }
+      setSegments((prev) => {
+        const kept = replaced ? prev.filter((row) => row.id !== replaced.id) : prev;
+        return [...kept, saved].sort((a, b) => a.startMs - b.startMs);
+      });
+    } catch {
+      // 断网、响应不是 JSON：本地数组保持原样，用户只看得到提示
+      setSaveError(GENERIC_SAVE_FAILED);
+    } finally {
+      setCommitting(false);
+    }
   }
 
   return (
@@ -206,6 +263,15 @@ export default function Workbench({ task }: Props) {
             )}
           </div>
         </aside>
+      </div>
+
+      {/* 固定高度：提示出现与消失都不推挤时间轴，标注时轨道位置不跳 */}
+      <div className="flex h-4 items-center px-1" aria-live="polite">
+        {saveError ? (
+          <p className="text-[11.5px] text-bad">{saveError}</p>
+        ) : committing ? (
+          <p className="text-[11.5px] text-ink-faint">保存中…</p>
+        ) : null}
       </div>
 
       {/*

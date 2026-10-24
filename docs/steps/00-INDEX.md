@@ -75,7 +75,7 @@
 | E1  | 工作台骨架与视频播放器              | [15-workbench-shell](15-workbench-shell.md)     | D3    | 0.5h |
 | E2  | 时间轴渲染（片段色块 + 播放头）        | [16-timeline-render](16-timeline-render.md)     | E1    | 1h   |
 | E3  | 拖拽创建与调整区间                | [17-timeline-drag](17-timeline-drag.md)         | E2    | 1.5h |
-| E4  | 片段 CRUD API（含预检 + 触发器兜底；删掉 E2 的 `?demo=1` 演示片段） | [18-segment-api](18-segment-api.md)             | A1    | 0.5h |
+| E4  | 片段 CRUD API（含预检 + 触发器兜底；`?demo=1` 演示片段已删） | [18-segment-api](18-segment-api.md)             | A1    | 0.5h |
 | E5  | 片段列表（选中、编辑、删除）           | [19-segment-list](19-segment-list.md)           | E4 E2 | 0.5h |
 | E6  | 冲突实时反馈（拖拽中即提示）           | [20-conflict-feedback](20-conflict-feedback.md) | E3    | 0.5h |
 | E7  | 键盘快捷键                    | [21-shortcuts](21-shortcuts.md)                 | E3    | 0.5h |
@@ -85,8 +85,8 @@
 > 见 [14a-segment-interval](14a-segment-interval.md)（22 例测试）。
 > E4 实现时直接调用 `normalizeSegments`，不再重写校验规则。
 >
-> **E2 的演示片段是临时的**：`?demo=1` 注入的三条片段写死在 `Workbench.tsx`，
-> 代码内有 `// E4 接入真实片段后删除` 标记，E4 接入真实数据时一并删除。
+> **E4 已用真实片段替换演示数据**：`?demo=1` 与 `DEMO_SEGMENTS` 已随 E4 删除，
+> 首屏片段由服务端从 `segments` 表读出后传入 `Workbench`。
 
 **M2 能标片段** ← 到这里核心价值成立
 
