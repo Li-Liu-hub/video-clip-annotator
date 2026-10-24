@@ -70,13 +70,23 @@ describe('空与数量', () => {
     expect(normalizeSegments([], DURATION)).toEqual({ ok: false, issue: { code: 'empty' } });
   });
 
-  it('超过上限返回 too-many', () => {
+  it('超过上限返回 too-many 并带上实际数量', () => {
     const many = Array.from({ length: MAX_SEGMENTS + 1 }, (_, i) =>
       seg(i * 300, i * 300 + 200),
     );
-    const result = normalizeSegments(many, 1_000_000);
-    expect(result.ok).toBe(false);
-    expect(result.ok === false && result.issue.code).toBe('too-many');
+    expect(normalizeSegments(many, 1_000_000)).toEqual({
+      ok: false,
+      issue: { code: 'too-many', count: MAX_SEGMENTS + 1 },
+    });
+  });
+
+  it('恰好等于上限仍然放行', () => {
+    // 边界：`> MAX_SEGMENTS` 与 `>= MAX_SEGMENTS` 只在这一条上不同，
+    // 没有它，把判据改成 >= 的变异不会变红
+    const exact = Array.from({ length: MAX_SEGMENTS }, (_, i) =>
+      seg(i * 300, i * 300 + 200),
+    );
+    expect(normalizeSegments(exact, 1_000_000).ok).toBe(true);
   });
 });
 
@@ -130,10 +140,34 @@ describe('单项非法值', () => {
     });
   });
 
-  it('时长为 0 时任何片段都 out-of-range', () => {
+  it('时长为 0 时直接判时长非法', () => {
+    // 时长本身不合法时，「是否在视频范围内」无定义，比逐段报越界更早也更准确
     expect(normalizeSegments([seg(0, 100)], 0)).toEqual({
       ok: false,
-      issue: { code: 'out-of-range', index: 0 },
+      issue: { code: 'invalid-duration' },
+    });
+  });
+
+  it('时长为 NaN 时判时长非法', () => {
+    // 若不先拦：endMs > NaN 恒为 false，逐项范围检查会全部静默通过
+    expect(normalizeSegments([seg(0, 900_000)], Number.NaN)).toEqual({
+      ok: false,
+      issue: { code: 'invalid-duration' },
+    });
+  });
+
+  it('时长为 Infinity 时判时长非法', () => {
+    expect(normalizeSegments([seg(0, 900_000)], Number.POSITIVE_INFINITY)).toEqual({
+      ok: false,
+      issue: { code: 'invalid-duration' },
+    });
+  });
+
+  it('小数毫秒被拒绝', () => {
+    // 原样放行会让 total_ms 以 REAL 落进 INTEGER 列
+    expect(normalizeSegments([seg(0, 200.4)], DURATION)).toEqual({
+      ok: false,
+      issue: { code: 'not-integer', index: 0 },
     });
   });
 });
