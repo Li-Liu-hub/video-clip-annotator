@@ -122,7 +122,12 @@ CREATE INDEX idx_submissions_task ON submissions(task_id, created_at);
 
 -- ─────────────────────────────────────────────
 -- 账本：只追加。统计的唯一数据源。
--- 冲正记在「事件发生日」而非「原提交日」，所以历史日期永远不会被改写。
+--
+-- 冲正记在「原提交日」而非「操作当天」。
+-- 退回一条 20 日提交的任务，冲正也落在 20 日，这样那一天的净额立刻反映真实工作量；
+-- 若记在退回当天，20 日的报表会永久偏多，退回日反而凭空出现一段负数工作量。
+-- 代价是历史某个日期的净额会变（变准），而不是「永远不会被改写」。
+-- 「谁在何时退回了什么」由 audit_logs 回答，账本只管数字。
 -- ─────────────────────────────────────────────
 CREATE TABLE ledger_entries (
   id            TEXT    PRIMARY KEY,
@@ -131,7 +136,7 @@ CREATE TABLE ledger_entries (
   submission_id TEXT    NOT NULL REFERENCES submissions(id),
   annotator_id  TEXT    NOT NULL REFERENCES users(id),
   delta_ms      INTEGER NOT NULL,   -- 正=计入，负=冲正
-  entry_date    TEXT    NOT NULL,   -- 计入哪一天（事件发生日）
+  entry_date    TEXT    NOT NULL,   -- 计入哪一天：submit 取提交日，revoke 取原提交日
   kind          TEXT    NOT NULL CHECK (kind IN ('submit', 'revoke')),
   created_at    INTEGER NOT NULL,
   CHECK ((kind = 'submit' AND delta_ms > 0) OR

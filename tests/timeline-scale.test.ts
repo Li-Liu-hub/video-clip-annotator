@@ -15,8 +15,22 @@ describe('pickTickStepMs：按总时长选步长，刻度数不超过 12', () =>
     expect(pickTickStepMs(1000)).toBe(1000);
   });
 
-  it('超出候选表覆盖范围的 4 小时视频退回最大步长 300000', () => {
-    expect(pickTickStepMs(4 * 3_600_000)).toBe(300_000);
+  it('4 小时视频用 30 分钟步长，刻度不超 12 个', () => {
+    // 候选表原本只到 5 分钟，导致 4 小时会画出 48 个刻度、间距 22px 必然重叠。
+    // 步长上界补到 1 小时后，4 小时落在 30 分钟档，共 8 个刻度。
+    expect(pickTickStepMs(4 * 3_600_000)).toBe(1_800_000);
+    expect(buildTicks(4 * 3_600_000).length).toBeLessThanOrEqual(12);
+  });
+
+  it('超过 12 小时的素材退回 1 小时步长', () => {
+    expect(pickTickStepMs(20 * 3_600_000)).toBe(3_600_000);
+  });
+
+  it('非法时长返回最小步长而非最大步长', () => {
+    // 返回最大步长会让「NaN」看起来像「素材很长」，掩盖调用方的错误
+    expect(pickTickStepMs(Number.NaN)).toBe(1000);
+    expect(pickTickStepMs(0)).toBe(1000);
+    expect(pickTickStepMs(-5000)).toBe(1000);
   });
 });
 

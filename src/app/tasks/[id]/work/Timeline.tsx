@@ -10,15 +10,8 @@
  */
 import { useEffect, useRef, type RefObject } from 'react';
 import type { Segment } from '@/lib/segment-interval';
+import { formatDuration } from '@/lib/time';
 import { buildTicks, ratioToMs } from '@/lib/timeline-scale';
-
-/** 毫秒 → mm:ss，与播放器同一口径：分钟不折进位（超过一小时显示 65:03）。 */
-function formatClock(ms: number): string {
-  const totalSeconds = Math.floor(Math.max(0, ms) / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-}
 
 type Props = {
   durationMs: number;
@@ -76,7 +69,7 @@ export default function Timeline({ durationMs, segments, videoRef, onSeek }: Pro
               transform: ms === 0 ? undefined : 'translateX(-50%)',
             }}
           >
-            {formatClock(ms)}
+            {formatDuration(ms, false)}
           </span>
         ))}
       </div>
@@ -90,7 +83,7 @@ export default function Timeline({ durationMs, segments, videoRef, onSeek }: Pro
           ? segments.map((segment, index) => (
               <div
                 key={`${segment.startMs}-${index}`}
-                title={`${formatClock(segment.startMs)} – ${formatClock(segment.endMs)} · ${(
+                title={`${formatDuration(segment.startMs, false)} – ${formatDuration(segment.endMs, false)} · ${(
                   (segment.endMs - segment.startMs) /
                   1000
                 ).toFixed(1)}s`}

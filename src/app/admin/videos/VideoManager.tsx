@@ -8,6 +8,7 @@
  */
 
 import { useRef, useState } from 'react';
+import { formatDuration } from '@/lib/time';
 import {
   MAX_UPLOAD_BYTES,
   checkFile,
@@ -37,14 +38,6 @@ type Selection =
   | ({ kind: 'failed'; message: string } & Selected);
 
 type Props = { initialVideos: VideoSummary[]; timezone: string };
-
-/** 毫秒 → mm:ss。分钟不折进位，超过一小时显示 65:03，与播放器时间轴口径一致。 */
-function formatClock(ms: number): string {
-  const totalSeconds = Math.floor(ms / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-}
 
 function formatSize(bytes: number): string {
   const mb = bytes / 1024 / 1024;
@@ -232,7 +225,7 @@ export default function VideoManager({ initialVideos, timezone }: Props) {
                   {selected.file.name}
                 </p>
                 <p className="tnum mt-0.5 text-[11px] text-ink-faint">
-                  {formatSize(selected.file.size)} · {formatClock(selected.durationMs)}
+                  {formatSize(selected.file.size)} · {formatDuration(selected.durationMs, false)}
                 </p>
               </div>
 
@@ -328,7 +321,7 @@ export default function VideoManager({ initialVideos, timezone }: Props) {
             素材库
           </h2>
           <span className="tnum text-[11px] text-ink-faint">
-            合计 {formatClock(totalDurationMs)}
+            合计 {formatDuration(totalDurationMs, false)}
           </span>
         </div>
 
@@ -362,7 +355,7 @@ export default function VideoManager({ initialVideos, timezone }: Props) {
                         </div>
                       </td>
                       <td className="tnum px-3 py-2.5 text-[12px] text-ink-dim">
-                        {formatClock(video.durationMs)}
+                        {formatDuration(video.durationMs, false)}
                       </td>
                       <td className="tnum px-3 py-2.5 text-[12px] text-ink-dim">
                         {formatSize(video.sizeBytes)}

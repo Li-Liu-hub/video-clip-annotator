@@ -10,16 +10,9 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import type { Segment } from '@/lib/segment-interval';
+import { formatDuration } from '@/lib/time';
 import type { WorkTask } from '@/lib/services/workbench-service';
 import Timeline from './Timeline';
-
-/** 毫秒 → mm:ss。分钟不折进位（超过一小时显示 65:03），与播放器时间轴同一口径。 */
-function formatClock(ms: number): string {
-  const totalSeconds = Math.floor(Math.max(0, ms) / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-}
 
 function PlayIcon() {
   return (
@@ -55,12 +48,17 @@ export default function Workbench({ task }: Props) {
   const [segments, setSegments] = useState<Segment[]>([]);
   /** 只接纳有限值；null 表示还没读到 metadata，或读到的是 Infinity */
   const [mediaDurationSec, setMediaDurationSec] = useState<number | null>(null);
+  /** 视频流加载失败。没有这个开关，黑屏页面无法区分「没加载完」与「文件坏了」。 */
+  const [loadFailed, setLoadFailed] = useState(false);
 
   /**
    * moov 在文件尾部的 mp4（fixtures/pusht-pushblock.mp4 就是），loadedmetadata 时
    * duration 可能是 Infinity，直接显示即 Infinity/NaN；退回建任务时写入的时长。
    */
-  const durationSec = mediaDurationSec ?? task.durationMs / 1000;
+  // 只用 > 0 的媒体时长。`??` 会把 0 当成有效值接住（Number.isFinite(0) 为 true），
+  // 而 0 会让整条时间轴静默禁用：刻度为空、色块不画、点击不 seek，比播放头消失更难察觉。
+  // 服务端 durationMs 有 CHECK (> 0) 保证，作为兜底更可靠。
+  const durationSec = mediaDurationSec !== null && mediaDurationSec > 0 ? mediaDurationSec : task.durationMs / 1000;
 
   useEffect(() => {
     const video = videoRef.current;
@@ -70,6 +68,7 @@ export default function Workbench({ task }: Props) {
     setPlaying(false);
     setCurrentMs(0);
     setMediaDurationSec(null);
+    setLoadFailed(false);
 
     const onTime = () => setCurrentMs(video.currentTime * 1000);
     const onPlay = () => setPlaying(true);
@@ -82,6 +81,9 @@ export default function Workbench({ task }: Props) {
       // Infinity 不进展示层：媒体信息还没就绪时，由服务端时长兜底
       setMediaDurationSec(Number.isFinite(video.duration) ? video.duration : null);
     };
+    // 流接口失败时返回的是 JSON，video 元素解不出来只会静默黑屏。
+    // 不给出口的话，用户无法区分「还没加载完」和「视频坏了」
+    const onError = () => setLoadFailed(true);
 
     video.addEventListener('timeupdate', onTime);
     video.addEventListener('play', onPlay);
@@ -89,6 +91,7 @@ export default function Workbench({ task }: Props) {
     video.addEventListener('ended', onEnded);
     video.addEventListener('loadedmetadata', onDuration);
     video.addEventListener('durationchange', onDuration);
+    video.addEventListener('error', onError);
 
     return () => {
       // 漏 removeEventListener：旧元素继续 setState，切换任务后状态错乱；
@@ -99,6 +102,7 @@ export default function Workbench({ task }: Props) {
       video.removeEventListener('ended', onEnded);
       video.removeEventListener('loadedmetadata', onDuration);
       video.removeEventListener('durationchange', onDuration);
+      video.removeEventListener('error', onError);
       video.pause();
     };
   }, [task.id]);
@@ -139,7 +143,7 @@ export default function Workbench({ task }: Props) {
           aria-label="视频"
         >
           {/* 固定 16:9 舞台 + object-contain：非 16:9 素材左右留 void 底色，不拉伸变形 */}
-          <div className="flex aspect-video items-center justify-center bg-void">
+          <div className="relative flex aspect-video items-center justify-center bg-void">
             <video
               key={task.id}
               ref={videoRef}
@@ -148,6 +152,14 @@ export default function Workbench({ task }: Props) {
               playsInline
               className="h-full w-full object-contain"
             />
+            {loadFailed ? (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-void/90 px-6 text-center">
+                <p className="text-[12.5px] text-ink">视频加载失败</p>
+                <p className="text-[11px] text-ink-faint">
+                  文件可能已被删除或没有访问权限，请刷新重试；仍不行请联系管理员
+                </p>
+              </div>
+            ) : null}
           </div>
 
           <div className="flex items-center gap-3 border-t border-line-soft px-3 py-2.5">
@@ -160,7 +172,7 @@ export default function Workbench({ task }: Props) {
               {playing ? <PauseIcon /> : <PlayIcon />}
             </button>
             <span className="tnum ml-auto text-[12px] text-ink-dim">
-              {formatClock(currentMs)} / {formatClock(durationSec * 1000)}
+              {formatDuration(currentMs, false)} / {formatDuration(durationSec * 1000, false)}
             </span>
           </div>
         </section>
@@ -170,7 +182,11 @@ export default function Workbench({ task }: Props) {
             <h2 className="text-[12.5px] font-medium text-ink">片段</h2>
           </div>
           <div className="flex flex-1 items-center justify-center px-3.5 py-8">
-            <p className="text-[11.5px] text-ink-faint">还没有片段</p>
+            {segments.length === 0 ? (
+              <p className="text-[11.5px] text-ink-faint">还没有片段</p>
+            ) : (
+              <p className="text-[11.5px] text-ink-dim">{segments.length} 个片段</p>
+            )}
           </div>
         </aside>
       </div>
