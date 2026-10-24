@@ -4,7 +4,10 @@
  * 全局键盘快捷键：空格播放 / I·O 打点 / Delete 删除选中 / 方向键微调 / Esc 兜底。
  *
  * 绑在 window 而非某个容器：标注时焦点常在视频与时间轴上，要求先点一下容器才生效，
- * 等于快捷键只在特定时刻可用。enabled 为 false 时根本不绑 —— 只读任务不该能按 Delete。
+ * 等于快捷键只在特定时刻可用。
+ *
+ * enabled 的语义是「允许写入」，不是「允许按键」：false 时只让 I / O / Delete 失效，
+ * 空格与方向键照常绑 —— 只读回顾时按空格得能播放，否则体验断裂。
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { RefObject } from 'react';
@@ -15,6 +18,7 @@ import { isTypingTarget, normalizeMarkRange } from '@/lib/shortcuts';
 const ARROW_STEP_MS = MS_PER_SECOND;
 
 type Args = {
+  /** 是否允许写入（I / O / Delete）。false 时播放与微调仍然可用。 */
   enabled: boolean;
   videoRef: RefObject<HTMLVideoElement | null>;
   selectedId: string | null;
@@ -62,8 +66,6 @@ export function useShortcuts({
   }, []);
 
   useEffect(() => {
-    if (!enabled) return;
-
     function onKeyDown(event: KeyboardEvent) {
       // 输入框里的空格是空格，不是播放。这一条必须在最前面：
       // 后面每个分支都会 preventDefault，先拦就再也补不回来了
@@ -97,6 +99,8 @@ export function useShortcuts({
       }
 
       if (event.key === 'Delete' || event.key === 'Backspace') {
+        // 只读：连 preventDefault 都不做，Backspace 保留浏览器默认行为
+        if (!enabled) return;
         // 长按 Delete 会「删一段 → 选中迁移 → 接着删」，几秒内清空整个任务。
         // 只认第一次按下：重复事件不是用户的新指令，是按键在自动重复
         if (event.repeat) return;
@@ -125,6 +129,8 @@ export function useShortcuts({
       // 字母用 key 且统一小写：CapsLock 开着时 key 是 'I' / 'O'，不归一化就整组失效
       const key = event.key.toLowerCase();
       if (key === 'i') {
+        // 只读：打点没有落点，也不拦默认行为
+        if (!enabled) return;
         if (!video) return;
         event.preventDefault();
         const at = playheadMs(video);
@@ -134,6 +140,8 @@ export function useShortcuts({
       }
 
       if (key === 'o') {
+        // 只读：不打点也不创建
+        if (!enabled) return;
         const markIn = markRef.current;
         // 没有入点就没有区间：不拿播放头当起点去猜，误创建比没反应更难收拾
         if (markIn === null || !video) return;

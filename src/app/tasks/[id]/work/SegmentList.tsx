@@ -6,6 +6,8 @@
  * 行按 id 而非下标做 key：E4 的替换是「先删后插」，id 会变；
  * 用下标做 key 时 React 会复用错行的 DOM，表现为「删了第 2 行、内容却错位」。
  * 行高固定 40px（min-h-10）：列表在固定高度的侧栏里滚动，行高随内容浮动会让滚动位置跳动。
+ *
+ * readOnly（已提交的任务）不渲染删除按钮：不存在的功能不该留一个永远点不了的灰按钮。
  */
 import type { SegmentRow } from '@/lib/services/segment-service';
 import { formatDuration } from '@/lib/time';
@@ -24,6 +26,8 @@ type Props = {
   onDelete: (id: string) => void;
   /** 有请求在途时禁用删除按钮，避免连点产生两次 DELETE */
   busy: boolean;
+  /** 只读回顾：整列删除按钮不渲染。缺省 false，E1–E7 的调用点不用改。 */
+  readOnly?: boolean;
 };
 
 export default function SegmentList({
@@ -33,11 +37,12 @@ export default function SegmentList({
   onSelect,
   onDelete,
   busy,
+  readOnly = false,
 }: Props) {
   if (segments.length === 0) {
     return (
       <p className="flex flex-1 items-center justify-center px-3.5 py-8 text-center text-[11.5px] leading-relaxed text-ink-faint">
-        还没有片段。在下方时间轴上拖动即可标注。
+        {readOnly ? '这个任务没有片段。' : '还没有片段。在下方时间轴上拖动即可标注。'}
       </p>
     );
   }
@@ -78,21 +83,23 @@ export default function SegmentList({
                   {((segment.endMs - segment.startMs) / 1000).toFixed(1)}s
                 </span>
               </button>
-              <button
-                type="button"
-                aria-label={`删除第 ${index + 1} 段`}
-                disabled={busy}
-                onClick={() => onDelete(segment.id)}
-                // 平时 opacity-0，行 hover / 行选中 / 本行删除中才可见：
-                // 常显会让每一行都被 ✕ 抢走视线，标注员扫时间是扫列而不是扫按钮
-                className={`m-1 flex h-6 shrink-0 items-center justify-center rounded px-1.5 text-[11px] text-ink-faint transition-opacity hover:text-bad disabled:cursor-not-allowed ${
-                  selected || pending
-                    ? 'opacity-100'
-                    : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'
-                }`}
-              >
-                {pending ? '删除中…' : '✕'}
-              </button>
+              {readOnly ? null : (
+                <button
+                  type="button"
+                  aria-label={`删除第 ${index + 1} 段`}
+                  disabled={busy}
+                  onClick={() => onDelete(segment.id)}
+                  // 平时 opacity-0，行 hover / 行选中 / 本行删除中才可见：
+                  // 常显会让每一行都被 ✕ 抢走视线，标注员扫时间是扫列而不是扫按钮
+                  className={`m-1 flex h-6 shrink-0 items-center justify-center rounded px-1.5 text-[11px] text-ink-faint transition-opacity hover:text-bad disabled:cursor-not-allowed ${
+                    selected || pending
+                      ? 'opacity-100'
+                      : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'
+                  }`}
+                >
+                  {pending ? '删除中…' : '✕'}
+                </button>
+              )}
             </div>
           </li>
         );

@@ -7,6 +7,8 @@
  * 原生控件把这些状态关在浏览器内部，取不到就只能整块重写。
  * 不用 blob URL：<video src> 是同源请求，浏览器自动带 session Cookie；
  * 先 fetch 再 createObjectURL 会把整个文件读进内存，并失去 Range，拖动进度条即失效。
+ *
+ * readOnly（已提交的任务）只断写入：播放、seek、方向键微调照旧。
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Segment } from '@/lib/segment-interval';
@@ -36,7 +38,7 @@ function PauseIcon() {
   );
 }
 
-type Props = { task: WorkTask; initialSegments: SegmentRow[] };
+type Props = { task: WorkTask; initialSegments: SegmentRow[]; readOnly?: boolean };
 
 /** 失败提示的存活时间：够看清一句话，又不会在连续标注时一直挡着时间轴。 */
 const ERROR_VISIBLE_MS = 3000;
@@ -70,7 +72,7 @@ function readErrorMessage(payload: unknown): string {
   return typeof message === 'string' && message.length > 0 ? message : GENERIC_SAVE_FAILED;
 }
 
-export default function Workbench({ task, initialSegments }: Props) {
+export default function Workbench({ task, initialSegments, readOnly = false }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(false);
   const [currentMs, setCurrentMs] = useState(0);
@@ -233,10 +235,10 @@ export default function Workbench({ task, initialSegments }: Props) {
 
   const { markInMs, clearMark } = useShortcuts({
     /**
-     * 工作台只对 claimed 任务渲染（page 里 getWorkTask 已挡掉其余状态），此处恒为真。
-     * E8 的只读回顾接手后按状态传：false 时整组快捷键不绑，只读任务按 Delete 无效。
+     * 语义是「允许写入」，不是「允许按键」：只读时仍要能空格播放、方向键微调，
+     * 只禁 I / O / Delete。整组不绑会让回顾时按空格没反应，体验断裂。
      */
-    enabled: task.status === 'claimed',
+    enabled: !readOnly,
     videoRef,
     selectedId,
     // 与时间轴同一把尺子：不用 video.duration，moov 在尾部的 mp4 会读到 Infinity
@@ -296,6 +298,9 @@ export default function Workbench({ task, initialSegments }: Props) {
    * 迁移只在「删的正是选中项」时做：删别的行也改选中，等于把用户的焦点悄悄拽走。
    */
   async function removeSegment(id: string) {
+    // 只读的第二道闸：列表不渲染删除按钮，但键盘 Delete 与将来的新调用点仍可能直达这里。
+    // 只有 UI 一层的话，请求会打到服务端拿 409，用户看到的是与「只读」无关的错误。
+    if (readOnly) return;
     // 读 ref 而非 state：删除按钮虽会被 busy 禁用，但键盘 Delete 与同帧连点仍会进到这里
     if (deletingIdRef.current !== null) return;
     // 提交在途时同样不删：按钮此时是 disabled，键盘得跟按钮一个口径，
@@ -331,6 +336,9 @@ export default function Workbench({ task, initialSegments }: Props) {
    * 而时间轴与 normalizeSegments 的下标都以「起点升序」为前提。
    */
   async function commitSegment(draft: Segment, replacedId: string | null) {
+    // 只读的第二道闸：时间轴不进拖拽状态机，但快捷键与将来的新调用点仍可能直达这里。
+    // 静默 return 是对的：只读下「不能保存」不是错误，没有任何提示才不至于误导。
+    if (readOnly) return;
     // 删除在途时不允许提交：DELETE 用的是点下去那一刻的 id，
     // 若这里再发一个「替换 X」，X 可能已经被删掉，必然 404 且提示无法理解。
     // 读 ref 而非 state：拖拽回调在 pointerdown 就被捕获，手势先于删除开始时闭包里还是旧值
@@ -456,6 +464,7 @@ export default function Workbench({ task, initialSegments }: Props) {
             onSelect={selectSegment}
             onDelete={removeSegment}
             busy={deletingId !== null || committing}
+            readOnly={readOnly}
           />
         </aside>
       </div>
@@ -485,12 +494,15 @@ export default function Workbench({ task, initialSegments }: Props) {
         onDragActiveChange={handleDragActiveChange}
         // 时间轴的点击已经由 E3 的状态机 seek 过，这里只接选中，不再 seek 一次
         onSelect={changeSelection}
+        readOnly={readOnly}
       />
 
       {/* 键位提示常驻页脚：快捷键不写在界面上，用户永远不知道有 I / O。
           文案来自 SHORTCUT_HINTS，单测锁住它不漂移 */}
       <p className="px-1 text-[11px] leading-relaxed text-ink-faint">
-        {SHORTCUT_HINTS.map(formatShortcutHint).join(' · ')}
+        {SHORTCUT_HINTS.filter((hint) => !readOnly || !hint.writableOnly)
+          .map(formatShortcutHint)
+          .join(' · ')}
       </p>
     </div>
   );

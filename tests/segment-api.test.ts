@@ -38,6 +38,7 @@ const T_MINE = 'a000000000000001';
 const T_PENDING = 'a000000000000002';
 const T_PEER = 'a000000000000003';
 const T_SUBMITTED = 'a000000000000004';
+const T_REJECTED = 'a000000000000005';
 const T_OTHER = 'b000000000000001';
 
 const S_MINE = 'c000000000000001';
@@ -126,7 +127,7 @@ function addOwned(
   tenantId: string,
   videoId: string,
   claimedBy: string,
-  status: 'claimed' | 'submitted',
+  status: 'claimed' | 'submitted' | 'rejected',
 ): void {
   db.prepare(
     `INSERT INTO tasks (id, tenant_id, video_id, title, status, claimed_by, claimed_at, created_by, created_at)
@@ -147,6 +148,8 @@ function seedRows(): void {
   addPending(T_PENDING, TENANT_A, VIDEO_A);
   addOwned(T_PEER, TENANT_A, VIDEO_A, ALICE_PEER_ID, 'claimed');
   addOwned(T_SUBMITTED, TENANT_A, VIDEO_A, ALICE_ID, 'submitted');
+  // 退回的行仍带着 claimed_by（schema 要求非 pending 必须有归属），正是「像自己的、其实不是」那条分支
+  addOwned(T_REJECTED, TENANT_A, VIDEO_A, ALICE_ID, 'rejected');
   addOwned(T_OTHER, TENANT_B, VIDEO_B, BOB_ID, 'claimed');
 
   addSegment(S_MINE, T_MINE, TENANT_A, 10_000, 20_000);
@@ -400,6 +403,12 @@ describe('归属与状态', () => {
     });
   });
 
+  it('已提交的任务改片段不会落库', () => {
+    // 上一个用例只断言抛错；这条守的是「写路径真的没走到 SQL」
+    swallow(() => upsertSegment(db, ALICE, T_SUBMITTED, { startMs: 0, endMs: 1_000 }));
+    expect(countOf(T_SUBMITTED)).toBe(0);
+  });
+
   it('已提交的任务删片段抛 StateConflictError', () => {
     expect(capture(() => deleteSegment(db, ALICE, T_SUBMITTED, S_MINE))).toEqual({
       threw: 'StateConflictError',
@@ -407,10 +416,41 @@ describe('归属与状态', () => {
     });
   });
 
-  it('已提交的任务列片段抛 StateConflictError', () => {
-    expect(capture(() => listSegments(db, ALICE, T_SUBMITTED))).toEqual({
+  it('已提交的任务删片段后该片段仍在', () => {
+    addSegment('c000000000000004', T_SUBMITTED, TENANT_A, 1_000, 5_000);
+    swallow(() => deleteSegment(db, ALICE, T_SUBMITTED, 'c000000000000004'));
+    expect(countOf(T_SUBMITTED)).toBe(1);
+  });
+
+  it('已提交的任务可以列出片段（E8 需求变更，不再是 409）', () => {
+    // E4 时期这里断言 StateConflictError：当时读路径与写路径共用 requireWritableTask。
+    // E8 起读路径改用 requireOwnedTask，已提交任务的片段必须能列出来，
+    // 否则只读回顾打不开。这是需求驱动的行为变更，不是回归。
+    addSegment('c000000000000005', T_SUBMITTED, TENANT_A, 1_000, 5_000);
+    expect(listSegments(db, ALICE, T_SUBMITTED).map((row) => row.id)).toEqual(['c000000000000005']);
+  });
+
+  it('已退回的任务改片段抛 StateConflictError 而不是 404', () => {
+    // 退货后 claimed_by 仍是本人（schema 强制非 pending 必须有归属），
+    // 所以拒绝的理由是「状态不允许改」，不是「不是你的任务」
+    expect(
+      capture(() => upsertSegment(db, ALICE, T_REJECTED, { startMs: 0, endMs: 1_000 })),
+    ).toEqual({ threw: 'StateConflictError', status: 409 });
+  });
+
+  it('已退回的任务删片段抛 StateConflictError 而不是 404', () => {
+    expect(capture(() => deleteSegment(db, ALICE, T_REJECTED, S_MINE))).toEqual({
       threw: 'StateConflictError',
       status: 409,
+    });
+  });
+
+  it('已退回的任务列片段抛 NotFoundError', () => {
+    // 不是 409 也不是空数组：退回后任务已回池子，claimed_by 只是历史残留，
+    // 与「同租户同事的任务」同一条出口
+    expect(capture(() => listSegments(db, ALICE, T_REJECTED))).toEqual({
+      threw: 'NotFoundError',
+      status: 404,
     });
   });
 

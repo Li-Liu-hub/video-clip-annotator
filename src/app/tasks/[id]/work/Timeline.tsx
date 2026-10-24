@@ -10,6 +10,8 @@
  *
  * 拖拽的事件与数学都在 use-segment-drag 与 lib/segment-drag，本组件只做三件事：
  * 转发 pointerdown、按草案画预览、按状态给光标。
+ *
+ * readOnly（只读回顾）不进拖拽状态机：按下不产生草案，点色块只做 seek。
  */
 import {
   useEffect,
@@ -24,7 +26,7 @@ import { EDGE_HIT_PX } from '@/lib/segment-drag';
 import type { DraftVerdict } from '@/lib/segment-drag';
 import type { SegmentRow } from '@/lib/services/segment-service';
 import { formatDuration } from '@/lib/time';
-import { buildTicks } from '@/lib/timeline-scale';
+import { buildTicks, ratioToMs } from '@/lib/timeline-scale';
 import { useSegmentDrag } from './use-segment-drag';
 
 type Props = {
@@ -43,6 +45,8 @@ type Props = {
    * 拖拽状态机自己持有 drag 状态，父组件拿不到，只能由这里上报。
    */
   onDragActiveChange?: (active: boolean) => void;
+  /** 只读回顾：不进入拖拽，点色块只 seek。缺省 false，E1–E7 的调用点不用改。 */
+  readOnly?: boolean;
 };
 
 /**
@@ -74,6 +78,7 @@ export default function Timeline({
   markInMs,
   onSelect,
   onDragActiveChange,
+  readOnly = false,
 }: Props) {
   const trackRef = useRef<HTMLDivElement>(null);
   const headRef = useRef<HTMLDivElement>(null);
@@ -134,6 +139,20 @@ export default function Timeline({
   }, [drag.kind, onDragActiveChange]);
 
   /**
+   * 指针横坐标 → 时间并定位。只读时点色块用它：色块可点，但不该起拖拽。
+   * 与状态机共用 ratioToMs，点击落点与拖拽落点因此不会差一个钳制规则。
+   */
+  function seekAt(clientX: number) {
+    const track = trackRef.current;
+    // 用 !(x > 0) 而非 x <= 0：NaN 会让换算一路变成 NaN
+    if (!track || !(durationMs > 0)) return;
+    const rect = track.getBoundingClientRect();
+    // 尚未布局（隐藏或首次挂载）时宽度为 0，除法会得到 Infinity
+    if (rect.width === 0) return;
+    onSeek(ratioToMs((clientX - rect.left) / rect.width, durationMs));
+  }
+
+  /**
    * 一切 pointerdown 都是拖拽的起点，因此在这里暂停：拖动中播放头继续走，
    * 标注员会一边拖一边看到画面在动，松手时 currentTime 已跑到别处。
    * 松手后不自动恢复 —— 标注员接下来要检查刚标的片段，自动播放反而干扰。
@@ -144,6 +163,12 @@ export default function Timeline({
   function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>, hit: SegmentRow | null) {
     // 右键菜单不该暂停视频；状态机内部也拦了 button，这里先拦是为了连 pause 都不发生
     if (event.button !== 0) return;
+    if (readOnly) {
+      // 只读：不进拖拽状态机，连草案都不出现。色块仍要能 seek —— 回顾时最常做的动作
+      // 就是「跳到这一段」。也不暂停：暂停是拖拽的需要，只点时打断播放反而碍事。
+      if (hit) seekAt(event.clientX);
+      return;
+    }
     videoRef.current?.pause();
     onPointerDown(event, hit);
   }
@@ -201,8 +226,13 @@ export default function Timeline({
         onPointerDown={(event) => handlePointerDown(event, null)}
         // touch-none：触屏上让轨道自己吃掉手势，否则系统滚动会打断拖拽
         // 拖拽中整条轨道统一 grabbing：指针已被轨道捕获，逐块判断光标只会闪烁
+        // 只读时 cursor-default：crosshair 会让人以为能拖，拖了没反应比没有光标更糟
         className={`relative mt-1.5 h-12 touch-none rounded-md bg-panel-2 ${
-          dragging ? 'cursor-grabbing [&_*]:cursor-grabbing' : 'cursor-crosshair'
+          readOnly
+            ? 'cursor-default'
+            : dragging
+              ? 'cursor-grabbing [&_*]:cursor-grabbing'
+              : 'cursor-crosshair'
         }`}
       >
         {ready
@@ -211,7 +241,8 @@ export default function Timeline({
                 durationMs > 0 ? ((segment.endMs - segment.startMs) / durationMs) * trackWidthPx : 0;
               // 与 resolveMode 的判据完全一致：窄块只认平移，于是也不显示边缘光标。
               // 光标显示 col-resize 而实际走 move，比完全不提示更糟 —— 用户会以为拖边无效。
-              const showEdges = widthPx >= 2 * EDGE_HIT_PX;
+              // 只读时整块不拖，边缘热区连同 col-resize 光标一起不渲染
+              const showEdges = !readOnly && widthPx >= 2 * EDGE_HIT_PX;
               return (
                 <div
                   key={segment.id}
@@ -235,7 +266,9 @@ export default function Timeline({
                   }}
                   // 冲突期间 ring-bad 顶掉选中环 ring-ink：两者写同一个 ring 属性，
                   // 并存只会显示其中一个，而冲突是瞬时的、更紧急的反馈
-                  className={`absolute top-1/2 h-[70%] -translate-y-1/2 cursor-grab rounded-[3px] bg-accent-2 transition-colors hover:bg-accent ${
+                  className={`absolute top-1/2 h-[70%] -translate-y-1/2 rounded-[3px] bg-accent-2 transition-colors hover:bg-accent ${
+                    readOnly ? 'cursor-default' : 'cursor-grab'
+                  } ${
                     conflictedIds.has(segment.id)
                       ? 'ring-2 ring-bad'
                       : segment.id === selectedId

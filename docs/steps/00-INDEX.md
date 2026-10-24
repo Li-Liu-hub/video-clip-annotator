@@ -80,6 +80,11 @@
 | E6  | 冲突实时反馈（拖拽中即提示）           | [20-conflict-feedback](20-conflict-feedback.md) | E3    | 0.5h |
 | E7  | 键盘快捷键                    | [21-shortcuts](21-shortcuts.md)                 | E3    | 0.5h |
 | E8  | 撤销与重做（草稿态）               | [22-undo-redo](22-undo-redo.md)                 | E5    | 1h   |
+| E8a | 只读回顾（已提交任务的查看模式）        | [22a-readonly-review](22a-readonly-review.md)   | E5    | 0.3h |
+
+> **E8a 是计划外补的**：做 E8 时发现「已提交的任务打不开」是个真实缺口 ——
+> `getWorkTask` 只放行 claimed，提交后就再也看不到自己标了什么。
+> 编号用 E8a 而不是占用 E8，是因为 INDEX 里 E8 一直是「撤销与重做」。
 
 > **预检逻辑已先行**：E4 的区间校验不依赖 UI，已提成纯函数完成 ——
 > 见 [14a-segment-interval](14a-segment-interval.md)（22 例测试）。

@@ -93,13 +93,18 @@ DELETE /api/tasks/:id/segments/:segId   → { ok }
 | 情况 | 错误 | 状态码 |
 |---|---|---|
 | 任务不存在 / 非本租户 / 不是自己领取 | `NotFoundError` | 404 |
-| 任务状态不是 `claimed` | `StateConflictError` | 409 |
+| 任务状态不是 `claimed`（**仅写接口**） | `StateConflictError` | 409 |
 | 片段不属于该任务 | `NotFoundError` | 404 |
 | 区间不合法（太短/越界/非整数） | `ValidationError` | 400 |
 | 与已有片段重叠 | `OverlapError` | 409 |
 | 管理员调用 | `ForbiddenError` | 403 |
 
 `OverlapError` 已存在（`src/lib/errors.ts`），沿用。
+
+> **E8a 起 GET 放宽**：读路径（`listSegments` / `GET /api/tasks/:id/segments`）
+> 改走「归属 + 状态 ∈ {claimed, submitted}」，已提交的任务可以读片段（只读回顾的前提）。
+> 上表「状态不是 claimed → 409」只对 POST / DELETE 成立。
+> rejected 在读写两侧都是拒绝，但理由不同：读是「按不存在处理」（404），写是「状态不允许」（409）。
 
 ---
 

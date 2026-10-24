@@ -85,24 +85,49 @@ function throwIssue(issue: SegmentIssue, conflict?: Interval): never {
 }
 
 /**
- * 归属校验：租户 + 是否本人领取，两者不满足都抛 404。
+ * 纯归属：租户 + 是否本人领取，不满足都抛 404。**不判状态** —— 状态各有各的出口。
  *
  * 同租户同事的任务也用 404 而不是 403：403 等于承认这条任务存在，
  * 同事的任务清单会因此可被枚举。顺序按 RULES：先判存在性与归属，再判状态。
+ *
+ * 归属谓词只有这一份。读、写两个入口都经它，避免「一处改了另一处没改」。
  */
-function requireWritableTask(db: DB, actor: TenantUser, taskId: string): TaskRow {
+function requireOwnedTask(db: DB, actor: TenantUser, taskId: string): TaskRow {
   const task = findByIdForTenant(db, taskId, actor.tenantId);
   if (!task) throw new NotFoundError(TASK_NOT_FOUND_MESSAGE);
   if (task.claimed_by !== actor.id) throw new NotFoundError(TASK_NOT_FOUND_MESSAGE);
+  return task;
+}
+
+/**
+ * 可读：归属成立 + 状态在白名单里。读路径用它，于是已提交的任务仍可读。
+ *
+ * rejected 按「不存在」处理：退回后任务已回到池子，claimed_by 只是历史残留，
+ * 打开它看到的是过期数据 —— 与 getWorkTask 的拒绝理由同一条。
+ * 用白名单而非「排除 rejected」：将来加第五个状态时，这里默认放行会出问题。
+ */
+function requireReadableTask(db: DB, actor: TenantUser, taskId: string): TaskRow {
+  const task = requireOwnedTask(db, actor, taskId);
+  if (task.status !== 'claimed' && task.status !== 'submitted') {
+    throw new NotFoundError(TASK_NOT_FOUND_MESSAGE);
+  }
+  return task;
+}
+
+/** 归属 + 状态必须是 claimed。写路径用它：已提交 / 已退回的任务改删片段是 409，不是 404。 */
+function requireWritableTask(db: DB, actor: TenantUser, taskId: string): TaskRow {
+  // 委托 owned 而非 readable：rejected 的归属是成立的（claimed_by 仍是本人），
+  // 它的问题是状态不允许改 —— 那是 409 该说的话，不是 404
+  const task = requireOwnedTask(db, actor, taskId);
   if (task.status !== 'claimed') {
     throw new StateConflictError(TASK_STATE_CONFLICT_MESSAGE);
   }
   return task;
 }
 
-/** 列出任务的片段，按 startMs 升序。 */
+/** 列出任务的片段，按 startMs 升序。已提交的任务也能列：那是只读回顾的前提。 */
 export function listSegments(db: DB, actor: TenantUser, taskId: string): SegmentRow[] {
-  requireWritableTask(db, actor, taskId);
+  requireReadableTask(db, actor, taskId);
   return listByTask(db, actor.tenantId, taskId).map(toSegmentRow);
 }
 

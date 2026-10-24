@@ -1,5 +1,5 @@
 /**
- * 工作台页（/tasks/:id/work）：只有领取该任务的标注员能进。
+ * 工作台页（/tasks/:id/work）：只有领取该任务的标注员能进，已提交的任务以只读方式进。
  *
  * 归属与状态判定都在 workbench-service；页面只把 NotFoundError 翻成 404，
  * 不在这里再判一遍 —— 页面里的判断不可单测，也会与 service 各写一套。
@@ -31,7 +31,7 @@ function loadWorkTask(user: TenantUser, taskId: string): WorkTask {
 
 /**
  * 首屏片段：与任务同一次请求取，避免工作台挂载后再打一次接口。
- * getWorkTask 已确认「本人领取且 claimed」，这里不会再有归属失败。
+ * getWorkTask 已确认「本人领取且 claimed / submitted」，这里不会再有归属失败。
  */
 function loadSegments(user: TenantUser, taskId: string): SegmentRow[] {
   return listSegments(getDb(), user, taskId);
@@ -47,6 +47,8 @@ export default async function WorkPage({ params }: Props) {
   const { id } = await params;
   const task = loadWorkTask(user, id);
   const segments = loadSegments(user, id);
+  // 状态只在这里判一次：客户端拿到 readOnly 直接用，不再自己查一遍（查法两处必然漂移）
+  const readOnly = task.status === 'submitted';
 
   return (
     <div className="mx-auto max-w-[1180px] px-6 py-7">
@@ -59,18 +61,26 @@ export default async function WorkPage({ params }: Props) {
         </Link>
         <div className="mt-2 flex items-baseline justify-between gap-4">
           <h1 className="text-[20px] font-medium tracking-tight text-ink">{task.title}</h1>
-          <span className="tag text-accent">已领取</span>
+          {/* 已完成用 tag-good，与任务列表的「已提交」同一套色（token 名是 good，无 ok） */}
+          {readOnly ? (
+            <span className="tag text-good">已提交</span>
+          ) : (
+            <span className="tag text-accent">已领取</span>
+          )}
         </div>
         <p className="mt-1 truncate text-[11.5px] text-ink-faint" title={task.videoFilename}>
           {task.videoFilename}
         </p>
+        {readOnly ? (
+          <p className="mt-1.5 text-[12px] text-good">已提交，仅供查看</p>
+        ) : null}
         {task.description ? (
           <p className="mt-1.5 text-[12.5px] leading-relaxed text-ink-dim">{task.description}</p>
         ) : null}
       </header>
 
       {/* key 绑任务 id：换任务时组件重建，useState 的初值才会重新取服务端片段 */}
-      <Workbench key={task.id} task={task} initialSegments={segments} />
+      <Workbench key={task.id} task={task} initialSegments={segments} readOnly={readOnly} />
     </div>
   );
 }

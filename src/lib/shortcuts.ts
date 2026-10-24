@@ -46,12 +46,17 @@ export function normalizeMarkRange(
  * 页脚展示的键位提示。抽成常量而不是散在 JSX 里：
  * 文案是用户可见的约定，用例锁住它，改键位时不会漏改提示。
  */
-export const SHORTCUT_HINTS: ReadonlyArray<{ keys: string; label: string }> = [
+export const SHORTCUT_HINTS: ReadonlyArray<{
+  keys: string;
+  label: string;
+  /** 只有可写任务才有的键。只读页脚不显示这些 —— 不教用户按已禁用的键。 */
+  writableOnly?: boolean;
+}> = [
   { keys: 'Space', label: '播放 / 暂停' },
-  { keys: 'I / O', label: '设入点 / 出点建片段' },
-  { keys: 'Delete', label: '删除选中片段' },
+  { keys: 'I / O', label: '设入点 / 出点建片段', writableOnly: true },
+  { keys: 'Delete', label: '删除选中片段', writableOnly: true },
   { keys: '← →', label: '播放头 1s（Shift 100ms）' },
-  { keys: 'Esc', label: '取消拖拽 / 清除入点' },
+  { keys: 'Esc', label: '取消拖拽 / 清除入点', writableOnly: true },
 ];
 
 /** 把一条提示拼成可读文本，页脚用它渲染整行，避免键位与说明两处各写一遍。 */
