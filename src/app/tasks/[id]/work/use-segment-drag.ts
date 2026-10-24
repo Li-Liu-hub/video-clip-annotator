@@ -225,10 +225,15 @@ export function useSegmentDrag({
   return { drag: state.drag, onPointerDown, overlay: state.overlay };
 }
 
-/** 命中色块时传该片段与其下标；空白处传 null 与 -1。 */
-/** 拖拽只关心两端，但要知道自己在拖哪一段（id 用于排除自身的冲突高亮）。 */
-export type DraggableSegment = Segment & { id?: string };
+/**
+ * 拖拽只关心两端，但要知道自己在拖哪一段（id 用于排除自身的冲突高亮）。
+ *
+ * id 必填而非可选：可选的话，将来任何传了不带 id 的调用方都会让「排除自身」
+ * 静默失效 —— 用户重新看到「拖自己，自己变红」，且没有类型错误或运行时报错。
+ */
+export type DraggableSegment = Segment & { id: string };
 
+/** 命中色块时传该片段与其下标；空白处传 null 与 -1。 */
 type OnPointerDown = (
   event: ReactPointerEvent<HTMLDivElement>,
   hit: DraggableSegment | null,

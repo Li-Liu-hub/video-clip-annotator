@@ -73,7 +73,7 @@ function setDeleting(next: boolean) {
 | `src/app/tasks/[id]/work/use-segment-drag.ts` | overlay 增加 `verdict`；`committing` 守卫 |
 | `src/app/tasks/[id]/work/Timeline.tsx` | 冲突段高亮、提示文案 |
 | `src/app/tasks/[id]/work/Workbench.tsx` | O1/O2 的 ref 守卫 |
-| `tests/segment-drag.test.ts` | 新增 4 例 |
+| `tests/segment-drag.test.ts` | 新增 6 例 |
 
 ---
 
