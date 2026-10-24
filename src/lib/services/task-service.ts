@@ -166,7 +166,7 @@ export function createTasks(
         targetType: 'task',
         targetId: id,
         detail: { videoId: input.videoId, title },
-      });
+      }, { strict: true });
       return id;
     });
     return { ids };
@@ -176,6 +176,8 @@ export function createTasks(
 const TASK_NOT_FOUND_MESSAGE = '任务不存在';
 const CLAIM_CONFLICT_MESSAGE = '这条任务已被其他人领取';
 const ALREADY_CLAIMED_MESSAGE = '你已经领取了这条任务';
+const ALREADY_SUBMITTED_MESSAGE = '这条任务已提交，不能重复领取';
+const REJECTED_TASK_MESSAGE = '这条任务已被退回，请从任务列表重新提交';
 const RELEASE_CONFLICT_MESSAGE = '当前状态不允许归还';
 
 /**
@@ -185,6 +187,19 @@ const RELEASE_CONFLICT_MESSAGE = '当前状态不允许归还';
  * 输赢仍由 claimIfPending 的 changes 判定 —— 先查后改在并发下两人都会通过。
  * 预查与预查后的更新都带租户条件，跨租户一律 404，不泄漏任务存在性。
  */
+/**
+ * 领取失败时按状态给出准确提示。
+ *
+ * 四种情况文案不同，是因为用户下一步该做的事不同：
+ * 已提交 → 无需再领；已退回 → 去列表重新提交；自己已领 → 继续标注；别人领了 → 换一条。
+ */
+function describeClaimConflict(task: TaskRow, actorId: string): string {
+  if (task.status === 'submitted') return ALREADY_SUBMITTED_MESSAGE;
+  if (task.status === 'rejected') return REJECTED_TASK_MESSAGE;
+  if (task.status === 'claimed' && task.claimed_by === actorId) return ALREADY_CLAIMED_MESSAGE;
+  return CLAIM_CONFLICT_MESSAGE;
+}
+
 export function claimTask(db: DB, actor: TenantUser, taskId: string): TaskRow {
   return writeTx(db, () => {
     const existing = findByIdForTenant(db, taskId, actor.tenantId);
@@ -196,13 +211,12 @@ export function claimTask(db: DB, actor: TenantUser, taskId: string): TaskRow {
       userId: actor.id,
       nowMs: nowMs(),
     });
-    // 区分「自己已领取」与「被别人抢了」：演示与真实使用中，连点按钮比真并发竞争更常见，
-    // 对同一个人说「已被其他人领取」会让人以为数据错了。
+    // 按状态给准确文案。只看 claimed_by 是不够的：schema 的 CHECK 要求所有非 pending
+    // 行都带 claimed_by，所以已提交/已退回的任务同样满足 `claimed_by === 自己`，
+    // 那时说「你已经领取了这条任务」会让人以为状态被回退了。
     // 事务拿的是写锁，existing 与上面的 UPDATE 之间不会被其他写事务插入，所以这个判断是准的。
     if (!claimed) {
-      throw new StateConflictError(
-        existing.claimed_by === actor.id ? ALREADY_CLAIMED_MESSAGE : CLAIM_CONFLICT_MESSAGE,
-      );
+      throw new StateConflictError(describeClaimConflict(existing, actor.id));
     }
 
     // 审计与状态跃迁同事务：要么「已在自己名下且有记录」，要么两者都不落库
@@ -214,7 +228,7 @@ export function claimTask(db: DB, actor: TenantUser, taskId: string): TaskRow {
       targetType: 'task',
       targetId: taskId,
       detail: { previousStatus: 'pending' },
-    });
+    }, { strict: true });
 
     // UPDATE 已命中，行必然存在；判空只为收窄类型
     const updated = findByIdForTenant(db, taskId, actor.tenantId);
@@ -251,6 +265,6 @@ export function releaseTask(db: DB, actor: TenantUser, taskId: string): void {
       targetType: 'task',
       targetId: taskId,
       detail: { previousStatus: 'claimed' },
-    });
+    }, { strict: true });
   });
 }

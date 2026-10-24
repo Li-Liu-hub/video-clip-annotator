@@ -234,3 +234,21 @@ describe('POST /api/tasks 权限', () => {
     expect(body.error.code).toBe('FORBIDDEN');
   });
 });
+
+describe('审计与业务同生共死', () => {
+  /**
+   * 故障注入：让 audit_logs 的插入必然失败。
+   *
+   * writeAudit 默认走旁路模式（吞异常，供登录使用），业务调用必须传 strict。
+   * 若这里变绿，说明「任务建了但没审计」的断链又回来了 —— 这类缺陷
+   * 只有故障注入能发现，tsc / 正常路径测试 / SQL 扫描全都看不见。
+   */
+  it('审计写不进去时建任务整体回滚', () => {
+    db.exec(
+      "CREATE TRIGGER fail_audit BEFORE INSERT ON audit_logs BEGIN SELECT RAISE(ABORT, 'audit blocked'); END",
+    );
+    const before = countTasks();
+    expect(() => createTasks(db, ADMIN, buildInput({ tenantIds: [TENANT_A, TENANT_B] }))).toThrow();
+    expect(countTasks()).toBe(before);
+  });
+});

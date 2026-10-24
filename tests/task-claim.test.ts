@@ -405,3 +405,21 @@ describe('冲突提示要分得清', () => {
     expect(() => claimTask(db, ALICE, T_PENDING)).toThrow(/其他人领取/);
   });
 });
+
+describe('冲突文案按状态区分', () => {
+  /**
+   * schema 的 CHECK 要求所有非 pending 行都带 claimed_by，
+   * 所以已提交/已退回的任务同样满足 `claimed_by === 自己`。
+   * 只看 claimed_by 的判定会把它们错报成「你已经领取了这条任务」，
+   * 让用户以为状态被回退了。
+   */
+  it('领取已提交的任务提示已提交，而不是「你已经领取了」', () => {
+    let message = '';
+    try {
+      claimTask(db, ALICE, T_SUBMITTED_ALICE);
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    expect(message).toBe('这条任务已提交，不能重复领取');
+  });
+});

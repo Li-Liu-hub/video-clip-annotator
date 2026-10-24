@@ -82,6 +82,6 @@ export function rejectTask(db: DB, actor: SessionUser, taskId: string, reason: s
         deltaMs: -submission.total_ms,
         entryDate: submission.local_date,
       },
-    });
+    }, { strict: true });
   });
 }
