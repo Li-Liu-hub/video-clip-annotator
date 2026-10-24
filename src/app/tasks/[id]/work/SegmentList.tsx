@@ -1,0 +1,102 @@
+'use client';
+
+/**
+ * 片段列表：序号、起止时间、时长与删除按钮，点击行选中并联动视频与时间轴。
+ *
+ * 行按 id 而非下标做 key：E4 的替换是「先删后插」，id 会变；
+ * 用下标做 key 时 React 会复用错行的 DOM，表现为「删了第 2 行、内容却错位」。
+ * 行高固定 40px（min-h-10）：列表在固定高度的侧栏里滚动，行高随内容浮动会让滚动位置跳动。
+ */
+import { useEffect, useState } from 'react';
+import type { SegmentRow } from '@/lib/services/segment-service';
+import { formatDuration } from '@/lib/time';
+
+type Props = {
+  segments: SegmentRow[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  onDelete: (id: string) => void;
+  /** 有请求在途时禁用删除按钮，避免连点产生两次 DELETE */
+  busy: boolean;
+};
+
+export default function SegmentList({ segments, selectedId, onSelect, onDelete, busy }: Props) {
+  /**
+   * 契约只给了全局 busy，说不出是哪一行在删；记下被点击的那一项，
+   * 请求结束后（busy 变 false）清空，否则下一次删除会先闪一下上一行的「删除中…」。
+   */
+  const [pendingId, setPendingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!busy) setPendingId(null);
+  }, [busy]);
+
+  if (segments.length === 0) {
+    return (
+      <p className="flex flex-1 items-center justify-center px-3.5 py-8 text-center text-[11.5px] leading-relaxed text-ink-faint">
+        还没有片段。在下方时间轴上拖动即可标注。
+      </p>
+    );
+  }
+
+  // min-h-0：flex 子项默认不小于内容高度，不加这行列表会把侧栏撑破而不是滚动
+  return (
+    <ul className="min-h-0 flex-1 overflow-y-auto pb-1">
+      {segments.map((segment, index) => {
+        const selected = segment.id === selectedId;
+        const pending = pendingId === segment.id;
+        // 选中行的底色常驻，hover 底色只给未选中行：两者叠加会盖掉选中色
+        const rowTone = selected
+          ? 'border-accent-2 bg-panel-2'
+          : 'border-transparent group-hover:bg-panel-2/50';
+        return (
+          <li key={segment.id} className="group">
+            <div className={`flex min-h-10 items-stretch border-l-[3px] ${rowTone}`}>
+              <button
+                type="button"
+                onClick={() => onSelect(segment.id)}
+                // 选中态不能只靠左侧竖条与底色表达：屏幕阅读器完全读不到颜色
+                aria-current={selected ? 'true' : undefined}
+                className="flex min-w-0 flex-1 items-center gap-2.5 py-1 pr-1 pl-2 text-left"
+              >
+                <span className="tnum w-4 shrink-0 text-[11px] text-ink-faint">{index + 1}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="tnum block truncate text-[12px] leading-5 text-ink">
+                    {formatDuration(segment.startMs, false)} – {formatDuration(segment.endMs, false)}
+                  </span>
+                  {/* 有标签才占第二行；没有时行高正好 40px */}
+                  {segment.label ? (
+                    <span className="block truncate text-[11px] leading-4 text-ink-dim">
+                      {segment.label}
+                    </span>
+                  ) : null}
+                </span>
+                <span className="tnum shrink-0 text-[11px] text-ink-faint">
+                  {((segment.endMs - segment.startMs) / 1000).toFixed(1)}s
+                </span>
+              </button>
+              <button
+                type="button"
+                aria-label={`删除第 ${index + 1} 段`}
+                disabled={busy}
+                onClick={() => {
+                  setPendingId(segment.id);
+                  onDelete(segment.id);
+                }}
+                // 平时 opacity-0，行 hover / 行选中 / 本行删除中才可见：
+                // 常显会让每一行都被 ✕ 抢走视线，标注员扫时间是扫列而不是扫按钮
+                className={`m-1 flex h-6 shrink-0 items-center justify-center rounded px-1.5 text-[11px] text-ink-faint transition-opacity hover:text-bad disabled:cursor-not-allowed ${
+                  selected || pending
+                    ? 'opacity-100'
+                    : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'
+                }`}
+              >
+                {pending ? '删除中…' : '✕'}
+              </button>
+            </div>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}

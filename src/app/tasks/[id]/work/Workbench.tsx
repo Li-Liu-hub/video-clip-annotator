@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * 工作台播放器：受控 <video> + 自绘播放控件，下方挂时间轴，右侧片段栏显示数量。
+ * 工作台播放器：受控 <video> + 自绘播放控件，下方挂时间轴，右侧片段列表与播放器、时间轴联动。
  *
  * 不用原生 controls：时间轴要与播放头共用「当前时间 / 总时长 / 是否在播」，
  * 原生控件把这些状态关在浏览器内部，取不到就只能整块重写。
@@ -10,9 +10,11 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import type { Segment } from '@/lib/segment-interval';
+import { selectionAfterDelete, selectionAfterSave } from '@/lib/segment-selection';
 import type { SegmentRow } from '@/lib/services/segment-service';
 import { formatDuration } from '@/lib/time';
 import type { WorkTask } from '@/lib/services/workbench-service';
+import SegmentList from './SegmentList';
 import Timeline from './Timeline';
 
 function PlayIcon() {
@@ -79,6 +81,30 @@ export default function Workbench({ task, initialSegments }: Props) {
   const [mediaDurationSec, setMediaDurationSec] = useState<number | null>(null);
   /** 视频流加载失败。没有这个开关，黑屏页面无法区分「没加载完」与「文件坏了」。 */
   const [loadFailed, setLoadFailed] = useState(false);
+  /**
+   * 选中项存 id 而非下标：E4 的替换是「先删后插」，片段 id 会变；
+   * 存下标的话拖动第 0 段之后，下标 0 仍然存在却指向了另一个片段。
+   */
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  /**
+   * 删除在途。不挡的话连点会发两个 DELETE，第二个返回 404，
+   * 用户看到一条「片段不存在」的莫名报错。
+   */
+  const [deleting, setDeleting] = useState(false);
+  /**
+   * 选中 id 的最新值。
+   *
+   * 拖拽回调是在 pointerdown 那一刻注册进 window 监听器的，闭包里捕获的 selectedId
+   * 是按下时的旧值；拖拽中若刚点过这段，state 已是新值而闭包不是，
+   * 「被替换的是不是选中项」就会判错，替换后高亮凭空消失。ref 读的永远是最新值。
+   */
+  const selectedIdRef = useRef<string | null>(null);
+
+  /** 选中态的唯一写入口：state 供渲染，ref 供事件闭包读。 */
+  function changeSelection(id: string | null) {
+    selectedIdRef.current = id;
+    setSelectedId(id);
+  }
 
   /**
    * moov 在文件尾部的 mp4（fixtures/pusht-pushblock.mp4 就是），loadedmetadata 时
@@ -163,6 +189,46 @@ export default function Workbench({ task, initialSegments }: Props) {
   }
 
   /**
+   * 点列表项：选中并把视频跳到片段开头。
+   *
+   * 用 startMs 而不是中点 —— 标注员点这一行是为了看这段从哪一帧开始，
+   * 跳到中间会让他先倒退着找边界。
+   */
+  function selectSegment(id: string) {
+    changeSelection(id);
+    const target = segments.find((row) => row.id === id);
+    if (target) seekTo(target.startMs);
+  }
+
+  /**
+   * 删除片段。成功后从数组移除，并把选中迁移到相邻项。
+   *
+   * 迁移只在「删的正是选中项」时做：删别的行也改选中，等于把用户的焦点悄悄拽走。
+   */
+  async function removeSegment(id: string) {
+    if (deleting) return;
+    setSaveError(null);
+    setDeleting(true);
+    try {
+      const response = await fetch(`/api/tasks/${task.id}/segments/${id}`, { method: 'DELETE' });
+      if (!response.ok) {
+        const payload: unknown = await response.json().catch(() => null);
+        setSaveError(readErrorMessage(payload));
+        return;
+      }
+      setSegments((prev) => prev.filter((row) => row.id !== id));
+      // 迁移判定抽在纯函数里：删的不是选中项时必须一动不动，
+      // 这个条件写在组件里就没人守得住（见 segment-selection 的注释）
+      changeSelection(selectionAfterDelete(selectedIdRef.current, id, segments));
+    } catch {
+      // 断网或响应不是 JSON：本地数组保持原样，服务端仍是唯一真值
+      setSaveError(GENERIC_SAVE_FAILED);
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  /**
    * 提交拖拽草案：replacedIndex 为 null 是新建，否则替换那一段。
    *
    * 只有服务端返回成功才改本地数组：失败时若先乐观更新，界面会显示一个刷新后消失的片段。
@@ -171,6 +237,9 @@ export default function Workbench({ task, initialSegments }: Props) {
    * 而时间轴与 normalizeSegments 的下标都以「起点升序」为前提。
    */
   async function commitSegment(draft: Segment, replacedIndex: number | null) {
+    // 删除在途时不允许提交：DELETE 用的是点下去那一刻的 id，
+    // 若这里再发一个「替换 X」，X 可能已经被删掉，必然 404 且提示无法理解
+    if (deleting) return;
     const replaced = replacedIndex === null ? null : segments[replacedIndex] ?? null;
 
     setSaveError(null);
@@ -201,6 +270,11 @@ export default function Workbench({ task, initialSegments }: Props) {
         const kept = replaced ? prev.filter((row) => row.id !== replaced.id) : prev;
         return [...kept, saved].sort((a, b) => a.startMs - b.startMs);
       });
+      // 数组更新与选中迁移必须一起做：只更新数组的话，selectedId 指向一个已不存在的 id，
+      // 列表与时间轴都不再高亮，用户会以为选中丢了。判定同样抽在纯函数里。
+      changeSelection(
+        selectionAfterSave(selectedIdRef.current, replaced?.id ?? null, saved.id),
+      );
     } catch {
       // 断网、响应不是 JSON：本地数组保持原样，用户只看得到提示
       setSaveError(GENERIC_SAVE_FAILED);
@@ -251,17 +325,22 @@ export default function Workbench({ task, initialSegments }: Props) {
           </div>
         </section>
 
-        <aside className="panel flex w-full shrink-0 flex-col lg:w-[280px]" aria-label="片段">
-          <div className="border-b border-line-soft px-3.5 py-2.5">
+        <aside
+          className="panel flex w-full shrink-0 flex-col overflow-hidden lg:w-[280px]"
+          aria-label="片段"
+        >
+          {/* 标题栏不参与滚动，只有下方列表滚 */}
+          <div className="flex items-center justify-between border-b border-line-soft px-3.5 py-2.5">
             <h2 className="text-[12.5px] font-medium text-ink">片段</h2>
+            <span className="tnum text-[11.5px] text-ink-faint">{segments.length}</span>
           </div>
-          <div className="flex flex-1 items-center justify-center px-3.5 py-8">
-            {segments.length === 0 ? (
-              <p className="text-[11.5px] text-ink-faint">还没有片段</p>
-            ) : (
-              <p className="text-[11.5px] text-ink-dim">{segments.length} 个片段</p>
-            )}
-          </div>
+          <SegmentList
+            segments={segments}
+            selectedId={selectedId}
+            onSelect={selectSegment}
+            onDelete={removeSegment}
+            busy={deleting || committing}
+          />
         </aside>
       </div>
 
@@ -285,6 +364,9 @@ export default function Workbench({ task, initialSegments }: Props) {
         videoRef={videoRef}
         onSeek={seekTo}
         onCommit={commitSegment}
+        selectedId={selectedId}
+        // 时间轴的点击已经由 E3 的状态机 seek 过，这里只接选中，不再 seek 一次
+        onSelect={changeSelection}
       />
     </div>
   );

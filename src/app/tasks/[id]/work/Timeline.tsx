@@ -20,19 +20,31 @@ import {
 } from 'react';
 import type { Segment } from '@/lib/segment-interval';
 import { EDGE_HIT_PX } from '@/lib/segment-drag';
+import type { SegmentRow } from '@/lib/services/segment-service';
 import { formatDuration } from '@/lib/time';
 import { buildTicks } from '@/lib/timeline-scale';
 import { useSegmentDrag } from './use-segment-drag';
 
 type Props = {
   durationMs: number;
-  segments: Segment[];
+  segments: SegmentRow[];
   videoRef: RefObject<HTMLVideoElement | null>;
   onSeek: (ms: number) => void;
   onCommit: (draft: Segment, replacedIndex: number | null) => void;
+  selectedId?: string | null;
+  /** 点中色块即选中；是否 seek 由 E3 的阈值状态机决定，这里不重复 seek */
+  onSelect?: (id: string) => void;
 };
 
-export default function Timeline({ durationMs, segments, videoRef, onSeek, onCommit }: Props) {
+export default function Timeline({
+  durationMs,
+  segments,
+  videoRef,
+  onSeek,
+  onCommit,
+  selectedId,
+  onSelect,
+}: Props) {
   const trackRef = useRef<HTMLDivElement>(null);
   const headRef = useRef<HTMLDivElement>(null);
   /**
@@ -91,7 +103,7 @@ export default function Timeline({ durationMs, segments, videoRef, onSeek, onCom
    */
   function handlePointerDown(
     event: ReactPointerEvent<HTMLDivElement>,
-    hit: Segment | null,
+    hit: SegmentRow | null,
     hitIndex: number,
   ) {
     // 右键菜单不该暂停视频；状态机内部也拦了 button，这里先拦是为了连 pause 都不发生
@@ -145,7 +157,7 @@ export default function Timeline({ durationMs, segments, videoRef, onSeek, onCom
               const showEdges = widthPx >= 2 * EDGE_HIT_PX;
               return (
                 <div
-                  key={`${segment.startMs}-${index}`}
+                  key={segment.id}
                   title={`${formatDuration(segment.startMs, false)} – ${formatDuration(segment.endMs, false)} · ${(
                     (segment.endMs - segment.startMs) /
                     1000
@@ -153,6 +165,8 @@ export default function Timeline({ durationMs, segments, videoRef, onSeek, onCom
                   onPointerDown={(event) => {
                     // 色块上的按下不再冒泡成「空白处创建」，否则一按就多出一段
                     event.stopPropagation();
+                    // 按下即选中，与列表同一套 id；拖拽时也顺带把焦点落到正在拖的这段
+                    onSelect?.(segment.id);
                     handlePointerDown(event, segment, index);
                   }}
                   // 百分比定位：窗口 resize 时由 CSS 自己重算。
@@ -162,7 +176,9 @@ export default function Timeline({ durationMs, segments, videoRef, onSeek, onCom
                     width: `${((segment.endMs - segment.startMs) / durationMs) * 100}%`,
                     minWidth: 2,
                   }}
-                  className="absolute top-1/2 h-[70%] -translate-y-1/2 cursor-grab rounded-[3px] bg-accent-2 transition-colors hover:bg-accent"
+                  className={`absolute top-1/2 h-[70%] -translate-y-1/2 cursor-grab rounded-[3px] bg-accent-2 transition-colors hover:bg-accent ${
+                    segment.id === selectedId ? 'ring-2 ring-ink' : ''
+                  }`}
                 >
                   {/* 只有宽块才渲染热区：此时左右各 EDGE_HIT_PX 互不重叠，
                       与 resolveMode 的 resize 判定区间逐像素对齐 */}
