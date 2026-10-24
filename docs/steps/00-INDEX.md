@@ -146,6 +146,7 @@ E3–E7 五轮审查中，Reviewer 判为非阻断但明确记录的问题。
 | O4 | E6 | ~~下标当身份~~ **E7 已修**。证据：`replacedIndex` / `movingIndex` / `hitIndex` 全仓 0 命中；`onCommit(draft, replacedId)` 四个环节签名统一；`use-segment-drag` 直接用 `hit.id` 排除自身 | 已修 |
 | G1 | E6 | ~~被守卫吞掉的第二次提交是静默的~~ **E7 已修**：三处守卫各给提示（删除在途 / 提交在途 / 被替换段已删）。`cursor-progress` 的视觉反馈仍可加 | 已修 |
 | O5 | E6 | ~~拖拽中删掉被拖段，松手仍 404~~ **E7 已修**。证据：`segmentsRef` 由 `applySegments` 写透（不是 effect 镜像，无窗口），提交前 `segmentsRef.current.some(id)` 判存在性，不在则提示「这一段已被删除」并放弃 | 已修 |
+| H1 | E8 | **撤销的方向（存操作前 vs 操作后）无自动化覆盖**。栈操作是纯函数、测得很扎实，但「调用点传的到底是 before 还是 after」在 Workbench 里，Reviewer 实测把它改成 `record(segmentsRef.current)` 后 **510 例全绿**。手工验证：拖一段 → Ctrl+Z → 必须回到原位（若停在原地不动或退回两步前，说明方向取反了） | 无组件测试前无法自动化 |
 | M6 | E7 | O 键遇到「太短」时静默不创建，入点保留（挪一下播放头再按 O 即可，不必重新打点）。已从文档契约里删掉「调用方据此提示太短」那句错误承诺 | 有余力时给一行提示 |
 | A3 | E7 | 单字符快捷键（I / O / Space）在 window 上常驻，没有开关，不满足 WCAG 2.1.4（字符快捷键应可关闭或可重映射）。当前只在工作台页生效、且输入框内全部失效，影响有限 | 做设置面板时 |
 | K13 | E7 | ~~长按 Delete 会「删一段 → 选中迁移 → 接着删」连锁清空~~ **已修**：`event.repeat` 时直接 return，只认第一次按下 | 已修 |

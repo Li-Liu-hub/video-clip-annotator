@@ -1,12 +1,12 @@
 'use client';
 
 /**
- * 全局键盘快捷键：空格播放 / I·O 打点 / Delete 删除选中 / 方向键微调 / Esc 兜底。
+ * 全局键盘快捷键：空格播放 / I·O 打点 / Delete 删除选中 / 方向键微调 / Esc 兜底 / Ctrl+Z 撤销。
  *
  * 绑在 window 而非某个容器：标注时焦点常在视频与时间轴上，要求先点一下容器才生效，
  * 等于快捷键只在特定时刻可用。
  *
- * enabled 的语义是「允许写入」，不是「允许按键」：false 时只让 I / O / Delete 失效，
+ * enabled 的语义是「允许写入」，不是「允许按键」：false 时只让 I / O / Delete / 撤销失效，
  * 空格与方向键照常绑 —— 只读回顾时按空格得能播放，否则体验断裂。
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -33,6 +33,11 @@ type Args = {
   onSeek: (ms: number) => void;
   onDeleteSelected: () => void;
   onCreateFromMarks: (range: { startMs: number; endMs: number }) => void;
+  onUndo: () => void;
+  onRedo: () => void;
+  /** 栈空时按下不该抢默认（无事可做时连 preventDefault 都不做） */
+  canUndo: boolean;
+  canRedo: boolean;
   onEscape: () => void;
 };
 
@@ -49,6 +54,10 @@ export function useShortcuts({
   onSeek,
   onDeleteSelected,
   onCreateFromMarks,
+  onUndo,
+  onRedo,
+  canUndo,
+  canRedo,
   onEscape,
 }: Args): { markInMs: number | null; clearMark: () => void } {
   const [markInMs, setMarkInMs] = useState<number | null>(null);
@@ -70,7 +79,22 @@ export function useShortcuts({
       // 输入框里的空格是空格，不是播放。这一条必须在最前面：
       // 后面每个分支都会 preventDefault，先拦就再也补不回来了
       if (isTypingTarget(event.target)) return;
-      // 修饰键组合归浏览器 / 系统：抢了 Ctrl+R、Cmd+S，用户会以为页面卡死。
+
+      // Ctrl/Cmd+Z 是唯一被接管的修饰键组合：标注页里「撤销」指的就是片段，
+      // 输入框里的那个已被上一条交还给浏览器（文本撤销）。
+      if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 'z') {
+        // 只读 / 回退在途（enabled 为 false）：不拦默认，也不发请求
+        if (!enabled) return;
+        // 栈空时什么都不做：不 preventDefault，浏览器的默认行为不该被一段空栈吞掉
+        if (event.shiftKey ? !canRedo : !canUndo) return;
+        event.preventDefault();
+        // Shift+Ctrl+Z 才是重做：Windows 的 Ctrl+Y 不接，多一个入口就多一种不一致
+        if (event.shiftKey) onRedo();
+        else onUndo();
+        return;
+      }
+
+      // 其余修饰键组合归浏览器 / 系统：抢了 Ctrl+R、Cmd+S，用户会以为页面卡死。
       // 一律放行，不做「只拦这几种」的白名单 —— 白名单永远漏一个
       if (event.ctrlKey || event.metaKey || event.altKey) return;
 
@@ -170,6 +194,11 @@ export function useShortcuts({
     onCreateFromMarks,
     onEscape,
     clearMark,
+    // 栈空与否直接决定是否拦默认，冻结在首帧就是「第一次撤销之后再也撤不动」
+    canUndo,
+    canRedo,
+    onUndo,
+    onRedo,
   ]);
 
   return { markInMs, clearMark };

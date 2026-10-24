@@ -9,9 +9,12 @@
  * 先 fetch 再 createObjectURL 会把整个文件读进内存，并失去 Range，拖动进度条即失效。
  *
  * readOnly（已提交的任务）只断写入：播放、seek、方向键微调照旧。
+ *
+ * 撤销 / 重做走 use-history：历史栈存区间（id 会变），回退时按差异串行调接口再重拉真值。
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Segment } from '@/lib/segment-interval';
+import { GENERIC_SAVE_FAILED, readErrorMessage, readSegment } from '@/lib/segment-payload';
 import { selectionAfterDelete, selectionAfterSave } from '@/lib/segment-selection';
 import type { SegmentRow } from '@/lib/services/segment-service';
 import { SHORTCUT_HINTS, formatShortcutHint } from '@/lib/shortcuts';
@@ -19,6 +22,7 @@ import { formatDuration } from '@/lib/time';
 import type { WorkTask } from '@/lib/services/workbench-service';
 import SegmentList from './SegmentList';
 import Timeline from './Timeline';
+import { useHistory } from './use-history';
 import { useShortcuts } from './use-shortcuts';
 
 function PlayIcon() {
@@ -42,35 +46,6 @@ type Props = { task: WorkTask; initialSegments: SegmentRow[]; readOnly?: boolean
 
 /** 失败提示的存活时间：够看清一句话，又不会在连续标注时一直挡着时间轴。 */
 const ERROR_VISIBLE_MS = 3000;
-
-const GENERIC_SAVE_FAILED = '保存失败，请检查网络后重试';
-
-/** 只认契约里的四个字段；服务端多给的字段一律不带进本地状态。 */
-function readSegment(payload: unknown): SegmentRow | null {
-  if (typeof payload !== 'object' || payload === null) return null;
-  const { segment } = payload as Record<string, unknown>;
-  if (typeof segment !== 'object' || segment === null) return null;
-
-  const row = segment as Record<string, unknown>;
-  if (typeof row.id !== 'string' || typeof row.startMs !== 'number' || typeof row.endMs !== 'number') {
-    return null;
-  }
-  return {
-    id: row.id,
-    startMs: row.startMs,
-    endMs: row.endMs,
-    label: typeof row.label === 'string' ? row.label : null,
-  };
-}
-
-/** 错误体是 { error: { message } }；解不出来就用通用文案，绝不把整段 JSON 显示给用户。 */
-function readErrorMessage(payload: unknown): string {
-  if (typeof payload !== 'object' || payload === null) return GENERIC_SAVE_FAILED;
-  const { error } = payload as Record<string, unknown>;
-  if (typeof error !== 'object' || error === null) return GENERIC_SAVE_FAILED;
-  const { message } = error as Record<string, unknown>;
-  return typeof message === 'string' && message.length > 0 ? message : GENERIC_SAVE_FAILED;
-}
 
 export default function Workbench({ task, initialSegments, readOnly = false }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -233,12 +208,49 @@ export default function Workbench({ task, initialSegments, readOnly = false }: P
     draggingRef.current = active;
   }, []);
 
+  /**
+   * 撤销 / 重做回填后的入口。
+   *
+   * 回退可能删掉当前选中的那一段：选中不清理就指向一个已不存在的 id，
+   * 此后按 Delete 只会拿到「片段不存在」，用户看不出选中其实已经没了。
+   */
+  function applyRestoredSegments(next: SegmentRow[]) {
+    applySegments(next);
+    if (!next.some((row) => row.id === selectedIdRef.current)) changeSelection(null);
+  }
+
+  const history = useHistory({
+    taskId: task.id,
+    readOnly,
+    // 读 ref 而非 state：撤销开始时必须拿到「此刻」的数组，闭包里的 segments 可能是几帧前的
+    getSegments: () => segmentsRef.current,
+    applySegments: applyRestoredSegments,
+    onFailure: (payload) => setSaveError(readErrorMessage(payload)),
+  });
+
+  /**
+   * 回退的入口闸：写请求在途时不动栈。
+   *
+   * 反过来（回退中禁止写）在 hook 与两个写入口里。这一侧也必须堵：
+   * 写还没回来时数组尚未落定，此时算出的 diff 会漏掉那次在途改动 ——
+   * 栈推进了、界面却没变，用户会以为撤销坏了。
+   */
+  function requestUndo() {
+    if (committingRef.current || deletingIdRef.current !== null) return;
+    history.undo();
+  }
+
+  function requestRedo() {
+    if (committingRef.current || deletingIdRef.current !== null) return;
+    history.redo();
+  }
+
   const { markInMs, clearMark } = useShortcuts({
     /**
      * 语义是「允许写入」，不是「允许按键」：只读时仍要能空格播放、方向键微调，
-     * 只禁 I / O / Delete。整组不绑会让回顾时按空格没反应，体验断裂。
+     * 只禁 I / O / Delete / 撤销。整组不绑会让回顾时按空格没反应，体验断裂。
      */
-    enabled: !readOnly,
+    enabled: !readOnly && !history.busy,
     videoRef,
     selectedId,
     // 与时间轴同一把尺子：不用 video.duration，moov 在尾部的 mp4 会读到 Infinity
@@ -250,6 +262,10 @@ export default function Workbench({ task, initialSegments, readOnly = false }: P
     },
     // 打字机打出来的区间没有「替换谁」，一律走新建
     onCreateFromMarks: (range) => void commitSegment(range, null),
+    onUndo: requestUndo,
+    onRedo: requestRedo,
+    canUndo: history.canUndo,
+    canRedo: history.canRedo,
     onEscape: () => {
       // 拖拽中由拖拽状态机自己收尾，这里不清入点 —— Esc 一次只做一件事。
       //
@@ -301,6 +317,9 @@ export default function Workbench({ task, initialSegments, readOnly = false }: P
     // 只读的第二道闸：列表不渲染删除按钮，但键盘 Delete 与将来的新调用点仍可能直达这里。
     // 只有 UI 一层的话，请求会打到服务端拿 409，用户看到的是与「只读」无关的错误。
     if (readOnly) return;
+    // 回退在途时不允许删：撤销的 diff 基于回退开始那一刻的数组，
+    // 中途少掉一段，剩下的请求就会按错的目标继续写
+    if (history.busyRef.current) return;
     // 读 ref 而非 state：删除按钮虽会被 busy 禁用，但键盘 Delete 与同帧连点仍会进到这里
     if (deletingIdRef.current !== null) return;
     // 提交在途时同样不删：按钮此时是 disabled，键盘得跟按钮一个口径，
@@ -308,6 +327,13 @@ export default function Workbench({ task, initialSegments, readOnly = false }: P
     if (committingRef.current) return;
     setSaveError(null);
     setDeletingId(id);
+    /**
+     * 记步要的是操作**前**的数组。
+     *
+     * applySegments 换的是数组引用而非原地改，所以这里存住引用就够，
+     * 成功后再交给 record —— 失败不记步，否则用户按 Ctrl+Z 会看到「无事发生」。
+     */
+    const before = segmentsRef.current;
     try {
       const response = await fetch(`/api/tasks/${task.id}/segments/${id}`, { method: 'DELETE' });
       if (!response.ok) {
@@ -319,6 +345,7 @@ export default function Workbench({ task, initialSegments, readOnly = false }: P
       // 迁移判定抽在纯函数里：删的不是选中项时必须一动不动，
       // 这个条件写在组件里就没人守得住（见 segment-selection 的注释）
       changeSelection(selectionAfterDelete(selectedIdRef.current, id, segments));
+      history.record(before);
     } catch {
       // 断网或响应不是 JSON：本地数组保持原样，服务端仍是唯一真值
       setSaveError(GENERIC_SAVE_FAILED);
@@ -339,6 +366,9 @@ export default function Workbench({ task, initialSegments, readOnly = false }: P
     // 只读的第二道闸：时间轴不进拖拽状态机，但快捷键与将来的新调用点仍可能直达这里。
     // 静默 return 是对的：只读下「不能保存」不是错误，没有任何提示才不至于误导。
     if (readOnly) return;
+    // 回退在途时不允许提交：撤销的 diff 基于回退开始那一刻的数组，
+    // 中途多 / 少一段，剩下的请求就会按错的目标继续写
+    if (history.busyRef.current) return;
     // 删除在途时不允许提交：DELETE 用的是点下去那一刻的 id，
     // 若这里再发一个「替换 X」，X 可能已经被删掉，必然 404 且提示无法理解。
     // 读 ref 而非 state：拖拽回调在 pointerdown 就被捕获，手势先于删除开始时闭包里还是旧值
@@ -369,6 +399,8 @@ export default function Workbench({ task, initialSegments, readOnly = false }: P
 
     setSaveError(null);
     setCommitting(true);
+    // 操作前的数组：成功后才记步，失败时状态没变，记一步只会让 Ctrl+Z「无事发生」
+    const before = segmentsRef.current;
     try {
       const response = await fetch(`/api/tasks/${task.id}/segments`, {
         method: 'POST',
@@ -397,6 +429,9 @@ export default function Workbench({ task, initialSegments, readOnly = false }: P
       // 数组更新与选中迁移必须一起做：只更新数组的话，selectedId 指向一个已不存在的 id，
       // 列表与时间轴都不再高亮，用户会以为选中丢了。判定同样抽在纯函数里。
       changeSelection(selectionAfterSave(selectedIdRef.current, replacedId, saved.id));
+      // 建 / 替换都记一步：四种写操作（拖拽建、拖拽替换、打字建、删除）最终都落在
+      // applySegments 之后的这一处或 removeSegment 那一处
+      history.record(before);
     } catch {
       // 断网、响应不是 JSON：本地数组保持原样，用户只看得到提示
       setSaveError(GENERIC_SAVE_FAILED);
@@ -463,7 +498,7 @@ export default function Workbench({ task, initialSegments, readOnly = false }: P
             deletingId={deletingId}
             onSelect={selectSegment}
             onDelete={removeSegment}
-            busy={deletingId !== null || committing}
+            busy={deletingId !== null || committing || history.busy}
             readOnly={readOnly}
           />
         </aside>
@@ -475,6 +510,9 @@ export default function Workbench({ task, initialSegments, readOnly = false }: P
           <p className="text-[11.5px] text-bad">{saveError}</p>
         ) : committing ? (
           <p className="text-[11.5px] text-ink-faint">保存中…</p>
+        ) : history.busy ? (
+          // 回退可能是删两条再建一条，期间界面看着「没反应」；这行是唯一的进度信号
+          <p className="text-[11.5px] text-ink-faint">正在回退…</p>
         ) : null}
       </div>
 
