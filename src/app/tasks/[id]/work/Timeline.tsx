@@ -19,7 +19,9 @@ import {
   type RefObject,
 } from 'react';
 import type { Segment } from '@/lib/segment-interval';
+import { MIN_SEGMENT_MS, overlaps } from '@/lib/interval';
 import { EDGE_HIT_PX } from '@/lib/segment-drag';
+import type { DraftVerdict } from '@/lib/segment-drag';
 import type { SegmentRow } from '@/lib/services/segment-service';
 import { formatDuration } from '@/lib/time';
 import { buildTicks } from '@/lib/timeline-scale';
@@ -35,6 +37,25 @@ type Props = {
   /** 点中色块即选中；是否 seek 由 E3 的阈值状态机决定，这里不重复 seek */
   onSelect?: (id: string) => void;
 };
+
+/**
+ * 草案提示文案：合格写区间与时长，不合格写原因。
+ *
+ * 三态文案一律读 verdict，不在组件里另判一次长短或重叠 —— 判定只有 assessDraft 一份，
+ * 否则「提示说合格、松手却提交不了」这类不一致迟早出现。
+ * 太短时写明确的下限而不是只说「太短」：用户得知道调到多长才合格。
+ */
+function draftHint(draft: Segment, verdict: DraftVerdict): string {
+  if (verdict.kind === 'too-short') return `太短（至少 ${MIN_SEGMENT_MS / 1000}s）`;
+  if (verdict.kind === 'overlap') {
+    const { with: hit } = verdict;
+    return `与 ${formatDuration(hit.startMs, false)} – ${formatDuration(hit.endMs, false)} 重叠`;
+  }
+  return `${formatDuration(draft.startMs, false)} – ${formatDuration(draft.endMs, false)} · ${(
+    (draft.endMs - draft.startMs) /
+    1000
+  ).toFixed(1)}s`;
+}
 
 export default function Timeline({
   durationMs,
@@ -116,9 +137,30 @@ export default function Timeline({
   const ticks = buildTicks(durationMs);
   const draft = drag.kind === 'dragging' ? drag.draft : null;
   const dragging = drag.kind === 'dragging';
-  // 草案不合格（重叠 / 太短）：边框转红，提示松手也不会落库。
+  const verdict = overlay?.verdict ?? null;
+  // 不合格（太短 / 重叠）：边框转红，让用户松手前就知道不会落库。
   // 项目没有 --color-danger，danger 语义由既有的 --color-bad 承担
-  const draftBorder = overlay?.acceptable ? 'border-accent' : 'border-bad';
+  const draftBorder = verdict && verdict.kind !== 'ok' ? 'border-bad' : 'border-accent';
+  /**
+   * 冲突段高亮取「全部」冲突，不是 findConflict 的第一个。
+   * 文案只说第一段（人一次只能修一处），但视觉上只标一段，用户会以为旁边那段没问题。
+   * 高亮用 ring（box-shadow）而非额外节点：不占布局、也不改变命中区域，
+   * 草案本身 pointer-events-none，拖到冲突段上方时事件仍落在轨道上。
+   */
+  /**
+   * 冲突段：所有与草案重叠的片段。
+   *
+   * 用 filter 而非 verdict.with：with 只是数组里第一个，只标它会让用户
+   * 以为旁边那段没问题。同时跳过正在被拖的那一段 —— 平移与调整端点时
+   * 草案必然压着自己原位，不排除就会看到「拖自己，自己变红」。
+   */
+  const conflictedIds = new Set(
+    verdict?.kind === 'overlap' && draft
+      ? segments
+          .filter((segment) => segment.id !== overlay?.movingId && overlaps(segment, draft))
+          .map((segment) => segment.id)
+      : [],
+  );
 
   return (
     <div className="panel px-4 py-3">
@@ -176,8 +218,14 @@ export default function Timeline({
                     width: `${((segment.endMs - segment.startMs) / durationMs) * 100}%`,
                     minWidth: 2,
                   }}
+                  // 冲突期间 ring-bad 顶掉选中环 ring-ink：两者写同一个 ring 属性，
+                  // 并存只会显示其中一个，而冲突是瞬时的、更紧急的反馈
                   className={`absolute top-1/2 h-[70%] -translate-y-1/2 cursor-grab rounded-[3px] bg-accent-2 transition-colors hover:bg-accent ${
-                    segment.id === selectedId ? 'ring-2 ring-ink' : ''
+                    conflictedIds.has(segment.id)
+                      ? 'ring-2 ring-bad'
+                      : segment.id === selectedId
+                        ? 'ring-2 ring-ink'
+                        : ''
                   }`}
                 >
                   {/* 只有宽块才渲染热区：此时左右各 EDGE_HIT_PX 互不重叠，
@@ -211,14 +259,16 @@ export default function Timeline({
           />
         ) : null}
 
-        {/* 时间提示：跟着鼠标水平位置，出界时由 overlay.ratio 贴边 */}
+        {/* 时间提示：跟着鼠标水平位置，出界时由 overlay.ratio 贴边。
+            不合格时叠一条 bad 左边框：文案已说明原因，颜色只是冗余编码，不靠它单独传达状态 */}
         {draft && overlay ? (
           <div
             style={{ left: `${overlay.ratio * 100}%` }}
-            className="tnum pointer-events-none absolute -top-6 -translate-x-1/2 rounded border border-line bg-panel-3 px-1.5 py-0.5 text-[10.5px] whitespace-nowrap text-ink"
+            className={`tnum pointer-events-none absolute -top-6 -translate-x-1/2 rounded border border-line bg-panel-2 px-1.5 py-0.5 text-[10.5px] whitespace-nowrap ${
+              overlay.verdict.kind === 'ok' ? 'text-ink' : 'border-l-2 border-l-bad text-bad'
+            }`}
           >
-            {formatDuration(draft.startMs)} – {formatDuration(draft.endMs)} ·{' '}
-            {((draft.endMs - draft.startMs) / 1000).toFixed(1)}s
+            {draftHint(draft, overlay.verdict)}
           </div>
         ) : null}
 

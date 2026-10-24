@@ -1,6 +1,7 @@
-/** 拖拽草案的契约用例：吸附、钳制、三种拖拽结果与合格判定。 */
+/** 拖拽草案的契约用例：吸附、钳制、三种拖拽结果、合格判定与不合格的原因。 */
 import { describe, expect, it } from 'vitest';
 import {
+  assessDraft,
   clampMs,
   draftFromDrag,
   draftFromMove,
@@ -154,6 +155,52 @@ describe('平移后的落点必须落在整百网格上', () => {
     expect(draftFromMove({ startMs: 1234, endMs: 5551 }, 1000, 30000)).toEqual({
       startMs: 2200,
       endMs: 6517,
+    });
+  });
+});
+
+describe('assessDraft：不合格时给出原因', () => {
+  it('长度恰好等于最小片段时返回合格', () => {
+    // 把 `<` 写成 `<=` 会在这里变红
+    expect(assessDraft({ startMs: 1000, endMs: 1100 }, [])).toEqual({ kind: 'ok' });
+  });
+
+  it('短于最小片段时返回太短', () => {
+    expect(assessDraft({ startMs: 1000, endMs: 1050 }, [])).toEqual({ kind: 'too-short' });
+  });
+
+  it('压住既有片段时返回重叠，并带上是哪一段', () => {
+    expect(assessDraft({ startMs: 1000, endMs: 5000 }, [{ startMs: 2000, endMs: 3000 }])).toEqual({
+      kind: 'overlap',
+      with: { startMs: 2000, endMs: 3000 },
+    });
+  });
+
+  it('首尾相接不算冲突，返回合格', () => {
+    // 与 overlaps 的 < / > 同一处：改成 <= 会在这里变红
+    expect(assessDraft({ startMs: 1000, endMs: 2000 }, [{ startMs: 2000, endMs: 3000 }])).toEqual({
+      kind: 'ok',
+    });
+  });
+});
+
+describe('assessDraft：判据顺序与多冲突', () => {
+  it('同时太短且重叠时报太短，挪开位置后提示仍然成立', () => {
+    // 先判重叠会返回 overlap，用户按提示挪开位置后仍不合格 —— 提示指向了次要问题
+    expect(assessDraft({ startMs: 1000, endMs: 1050 }, [{ startMs: 1000, endMs: 2000 }])).toEqual({
+      kind: 'too-short',
+    });
+  });
+
+  it('撞到多段时 with 是数组顺序的第一个，不是时间最早的', () => {
+    const others = [
+      { startMs: 45_000, endMs: 60_000 },
+      { startMs: 5000, endMs: 15_000 },
+    ];
+    // 文案只说一段（人一次只能修一处），视觉另按 filter 全标；语义固化在此
+    expect(assessDraft({ startMs: 10_000, endMs: 50_000 }, others)).toEqual({
+      kind: 'overlap',
+      with: others[0],
     });
   });
 });

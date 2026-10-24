@@ -75,7 +75,17 @@ export default function Workbench({ task, initialSegments }: Props) {
   /** 首屏来自服务端，之后以接口返回为准 —— 本地只是服务器状态的副本。 */
   const [segments, setSegments] = useState<SegmentRow[]>(initialSegments);
   /** 提交中只挡一小条提示，不做全屏遮罩：遮罩会打断正在进行的标注。 */
-  const [committing, setCommitting] = useState(false);
+  const [committing, setCommittingState] = useState(false);
+  /**
+   * 提交在途的同步副本。state 触发渲染（保存中…、按钮禁用），ref 供事件回调同步判断。
+   *
+   * 防的是「RTT 内连拖两次」：第二次带着第一次刚替换掉的片段 id，
+   * 服务端必然 404。原先这里完全没有互斥，加上 ref 后同一次挂载内只可能有一个在途提交。
+   *
+   * 防御性代码，无自动化覆盖：项目没有组件测试设施，靠 ref 的对象身份
+   * 跨渲染稳定这一点从结构上保证（见 00-INDEX 的未修项表 O1/O2）。
+   */
+  const committingRef = useRef(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   /** 只接纳有限值；null 表示还没读到 metadata，或读到的是 Infinity */
   const [mediaDurationSec, setMediaDurationSec] = useState<number | null>(null);
@@ -90,7 +100,12 @@ export default function Workbench({ task, initialSegments }: Props) {
    * 删除在途。不挡的话连点会发两个 DELETE，第二个返回 404，
    * 用户看到一条「片段不存在」的莫名报错。
    */
-  const [deleting, setDeleting] = useState(false);
+  const [deleting, setDeletingState] = useState(false);
+  /**
+   * 删除在途的同步副本。手势可以先于删除开始（触屏双指、按住鼠标时另一只手按 Enter），
+   * 那时拖拽回调捕获的 deleting 还是 false，读 state 会放行一个注定 404 的 POST。
+   */
+  const deletingRef = useRef(false);
   /**
    * 选中 id 的最新值。
    *
@@ -104,6 +119,22 @@ export default function Workbench({ task, initialSegments }: Props) {
   function changeSelection(id: string | null) {
     selectedIdRef.current = id;
     setSelectedId(id);
+  }
+
+  /**
+   * 删除态 / 提交态的唯一写入口：ref 先写，state 后写。
+   *
+   * 只用 ref，按钮永远不禁用、也没有「保存中…」；只用 state，事件回调里读到的是过期值。
+   * 两处必须同进同退，所以不给外部留单独的 setter。
+   */
+  function setDeleting(next: boolean) {
+    deletingRef.current = next;
+    setDeletingState(next);
+  }
+
+  function setCommitting(next: boolean) {
+    committingRef.current = next;
+    setCommittingState(next);
   }
 
   /**
@@ -206,7 +237,8 @@ export default function Workbench({ task, initialSegments }: Props) {
    * 迁移只在「删的正是选中项」时做：删别的行也改选中，等于把用户的焦点悄悄拽走。
    */
   async function removeSegment(id: string) {
-    if (deleting) return;
+    // 读 ref 而非 state：删除按钮虽然会被 busy 禁用，但同一次渲染内的连点仍会进到这里
+    if (deletingRef.current) return;
     setSaveError(null);
     setDeleting(true);
     try {
@@ -238,8 +270,11 @@ export default function Workbench({ task, initialSegments }: Props) {
    */
   async function commitSegment(draft: Segment, replacedIndex: number | null) {
     // 删除在途时不允许提交：DELETE 用的是点下去那一刻的 id，
-    // 若这里再发一个「替换 X」，X 可能已经被删掉，必然 404 且提示无法理解
-    if (deleting) return;
+    // 若这里再发一个「替换 X」，X 可能已经被删掉，必然 404 且提示无法理解。
+    // 读 ref 而非 state：拖拽回调在 pointerdown 就被捕获，手势先于删除开始时闭包里是过期 false
+    if (deletingRef.current) return;
+    // 提交之间互斥：RTT 内连拖同一段，第二次带的还是第一次的旧 id，同样 404
+    if (committingRef.current) return;
     const replaced = replacedIndex === null ? null : segments[replacedIndex] ?? null;
 
     setSaveError(null);

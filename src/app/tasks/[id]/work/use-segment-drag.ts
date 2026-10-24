@@ -9,7 +9,7 @@
  * 捕获挂在它身上会随节点重建丢失；捕获在轨道上，指针拖出轨道甚至拖出窗口也照常收到 move。
  *
  * 契约里的 DragState 不含「被拖的是第几段」与指针位置，但渲染需要：
- * 草案是否合格必须排除原片段（否则平移时草案与自己重叠，永远显红），
+ * 草案判定必须排除原片段（否则平移时草案与自己重叠，永远显红），
  * 时间提示要跟着鼠标走。故额外返回 overlay，不改动契约声明的字段。
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -22,8 +22,9 @@ import {
   draftFromDrag,
   draftFromMove,
   draftFromResize,
-  isAcceptableDraft,
+  assessDraft,
 } from '@/lib/segment-drag';
+import type { DraftVerdict } from '@/lib/segment-drag';
 import { ratioToMs } from '@/lib/timeline-scale';
 
 export type DragMode = 'create' | 'move' | 'resize-start' | 'resize-end';
@@ -33,8 +34,22 @@ export type DragState =
   | { kind: 'pending'; mode: DragMode; originMs: number; startX: number; origin: Segment | null }
   | { kind: 'dragging'; mode: DragMode; draft: Segment };
 
-/** 草案的渲染旁路信息：时间提示的相对位置（0~1）与是否可提交。 */
-export type DragOverlay = { ratio: number; acceptable: boolean };
+/**
+ * 草案的渲染旁路信息：时间提示的相对位置（0~1），以及带原因的判定结果。
+ * verdict 而非布尔 acceptable：界面要同时表达「红」「撞了谁」「为什么」。
+ */
+export type DragOverlay = {
+  ratio: number;
+  verdict: DraftVerdict;
+  /**
+   * 正在被拖的片段 id（新建时为 null）。高亮冲突段时要跳过它。
+   *
+   * 用 id 而不是下标：拖拽期间数组可能被删除操作改变（G2 允许删除在拖拽中完成），
+   * 下标会指向另一个片段 —— 表现为「被删的那段消失了，旁边一段凭空变红」。
+   * 用 id 就不存在这个窗口。
+   */
+  movingId: string | null;
+};
 
 type Args = {
   trackRef: RefObject<HTMLDivElement | null>;
@@ -115,6 +130,7 @@ export function useSegmentDrag({
 
       let started = false;
       let lastDraft: Segment | null = null;
+      let lastVerdict: DraftVerdict | null = null;
 
       setState({
         drag: { kind: 'pending', mode, originMs: anchorMs, startX, origin },
@@ -141,28 +157,34 @@ export function useSegmentDrag({
           started = true;
         }
         const draft = draftAt(moveEvent.clientX);
+        const verdict = assessDraft(draft, others);
         lastDraft = draft;
+        lastVerdict = verdict;
         setState({
           drag: { kind: 'dragging', mode, draft },
           overlay: {
             // 提示条跟鼠标走，出界时贴边而不是飞出面板
             ratio: clamp((moveEvent.clientX - rect.left) / rect.width, 0, 1),
-            acceptable: isAcceptableDraft(draft, others),
+            verdict,
+            // 被拖那一段的 id：平移与调整端点时草案必然压着自己原位，
+            // 不排除会看到「我拖自己，自己却变红了」。新建没有原段，为 null。
+            movingId: hit?.id ?? null,
           },
         });
       }
 
       function onUp(upEvent: PointerEvent) {
         if (upEvent.pointerId !== pointerId) return;
-        const draft = lastDraft;
         finish();
         if (!started) {
           // 位移未过阈值：是点击，走定位，不留下任何片段
           onSeek(anchorMs);
           return;
         }
-        if (draft && isAcceptableDraft(draft, others)) {
-          onCommit(draft, hitIndex >= 0 ? hitIndex : null);
+        // 复用最后一帧的 verdict，不在这里再算一次：提示条写着「合格」却因重算而提交失败
+        // （或反之）是最难解释的一类不一致，一处判定只该有一个结论
+        if (lastDraft && lastVerdict?.kind === 'ok') {
+          onCommit(lastDraft, hitIndex >= 0 ? hitIndex : null);
         }
       }
 
@@ -204,8 +226,11 @@ export function useSegmentDrag({
 }
 
 /** 命中色块时传该片段与其下标；空白处传 null 与 -1。 */
+/** 拖拽只关心两端，但要知道自己在拖哪一段（id 用于排除自身的冲突高亮）。 */
+export type DraggableSegment = Segment & { id?: string };
+
 type OnPointerDown = (
   event: ReactPointerEvent<HTMLDivElement>,
-  hit: Segment | null,
+  hit: DraggableSegment | null,
   hitIndex: number,
 ) => void;

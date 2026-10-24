@@ -28,8 +28,13 @@ export function overlaps(a: Interval, b: Interval): boolean {
   return a.startMs < b.endMs && a.endMs > b.startMs;
 }
 
-/** 返回第一个与候选区间冲突的片段，供 UI 指出撞到了哪一段。 */
-export function findConflict(segments: Interval[], candidate: Interval): Interval | null {
+/**
+ * 返回第一个与候选区间冲突的片段，供 UI 指出撞到了哪一段。
+ *
+ * 入参收 readonly：调用方手里是 `readonly Segment[]`（拖拽快照），
+ * 判定过程本就不改数组，没必要为了签名让调用方先复制一份。
+ */
+export function findConflict(segments: readonly Interval[], candidate: Interval): Interval | null {
   return segments.find((s) => overlaps(s, candidate)) ?? null;
 }
 

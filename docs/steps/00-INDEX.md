@@ -134,11 +134,15 @@ E3 / E4 / E5 三轮审查中，Reviewer 判为非阻断但明确记录的问题�
 
 | # | 来源 | 问题 | 何时该修 |
 |---|---|---|---|
-| O1 | E5 | `deleting` 是布尔而非 id，行身份靠 `SegmentList` 的本地 `pendingId` + 一个修补型 effect 兜着 —— 这是第二个真源。手势先于删除开始（触屏双指、按住鼠标另一只手按 Enter）时，`commitSegment` 读到过期的 `deleting=false`，仍会发出注定 404 的 POST | E6 的并发条目一起处理 |
-| O2 | E4 遗留 | `committing` 之间无互斥：同一片段在 RTT 内连拖两次，第二次带旧 id → 404 | E6 |
+| O1a | E5 | ~~`commitSegment` 的 `deleting` 守卫读 state，手势先于删除开始时读到过期值~~ **E6 已修**：守卫改读 `deletingRef`，`if (deleting)` 已从全仓消失 | 已修 |
+| O1b | E5 | **O1 的剩余部分未修**：`deleting` 仍是布尔而非 id，行身份靠 `SegmentList` 的本地 `pendingId` + 一个修补型 effect 兜着 —— 这是第二个真源 | E7 加键盘删除前必须修（届时 `disabled` 不再挡住所有入口） |
+| O1c | E6 | **O1a/O2 无自动化覆盖**。项目无组件测试设施，只有结构保证（ref 对象跨渲染稳定 + 入口第一行守卫）。手工验证方式：DevTools 限速 Slow 3G 让 DELETE 拖到约 2s，一指按住片段拖、另一指点头删，看 Network 的 **POST 次数必须为 0**（不能看「界面有没有报错」——404 后本地数组本来就不变） | E7 落地时补测 |
+| O2 | E4 遗留 | ~~`committing` 之间无互斥~~ **E6 已修**：`committingRef` 入口守卫 | 已修 |
+| O4 | E6 | 下标当身份：`Workbench` 的 `segments[replacedIndex]` 依赖「拖拽期间数组不变」，而删除允许在拖拽中完成。`movingIndex` 已改为 `movingId` 消除视觉错标，但 commit 路径仍用下标（旧数组配旧下标，自洽但脆） | 若 E7 允许拖拽中删除，一并改成 id |
+| G1 | E6 | 被守卫吞掉的第二次提交是静默的（草案消失、无提示）。可接受：用户本就在等第一次结果。一行改进：`committing` 时轨道 `cursor-progress` | 有余力时 |
 | G4 | E5 | 删除中缺 `aria-busy`（`disabled` + 文案已可读，收益小） | 与 G5 一起 |
 | G5 | E5 | 删除后焦点落回 `body`，无焦点管理 | 独立议题，需要设计 |
-| H5 | E5 | 相邻色块紧贴时选中描边 `ring-2` 会被后绘制的兄弟盖掉半圈 | 只能手工目视，E6 做冲突高亮时顺带看 |
+| H5 | E5 | 相邻色块紧贴时选中描边 `ring-2` 会被后绘制的兄弟盖掉半圈 | 只能手工目视 |
 | — | E5 | E5 的 GET 复用 `requireWritableTask`，submitted 任务返回 409 而非空数组。**E8 的只读回顾不能复用这个 GET** | E8 |
 
 ---

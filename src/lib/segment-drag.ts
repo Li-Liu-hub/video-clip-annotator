@@ -6,7 +6,13 @@
  * resize 拖成零长），放在组件里就没有任何自动化手段能验。
  */
 
-import { MIN_SEGMENT_MS, SNAP_STEP_MS, clamp, overlaps, snapTo } from '@/lib/interval';
+import {
+  MIN_SEGMENT_MS,
+  SNAP_STEP_MS,
+  clamp,
+  findConflict,
+  snapTo,
+} from '@/lib/interval';
 import type { Segment } from '@/lib/segment-interval';
 
 /** 拖拽位移小于这个像素数时视为点击，不进入拖拽。 */
@@ -82,12 +88,31 @@ export function draftFromResize(
 }
 
 /**
- * 草案是否可提交：长度达标且不与 others 中任何一段重叠。
+ * 草案的判定结果。比布尔值多给出「为什么不合格」：
+ * 拖拽中界面要同时做三件事 —— 草案描边变红、冲突段高亮、提示写清是哪个区间。
+ */
+export type DraftVerdict =
+  | { kind: 'ok' }
+  | { kind: 'too-short' }
+  | { kind: 'overlap'; with: Segment };
+
+/**
+ * 判定草案：长度是否达标、是否与 others 中某段重叠。
  *
  * others 必须排除被拖拽的原片段本身，否则平移时草案永远和自己原来那段重叠。
  * 重叠判定复用 interval.ts，保证 UI 结论与库里触发器一致。
+ *
+ * 顺序是「先长度、后重叠」，不能反：一个 50ms 的草案落进某段里报「重叠」的话，
+ * 用户按提示把位置挪开，长度仍然不合格 —— 提示指向了次要问题。
  */
+export function assessDraft(draft: Segment, others: readonly Segment[]): DraftVerdict {
+  if (draft.endMs - draft.startMs < MIN_SEGMENT_MS) return { kind: 'too-short' };
+  const conflict = findConflict(others, draft);
+  if (conflict) return { kind: 'overlap', with: conflict };
+  return { kind: 'ok' };
+}
+
+/** 草案是否可提交。保留布尔入口给不需要原因的调用方，判定只有 assessDraft 一份。 */
 export function isAcceptableDraft(draft: Segment, others: readonly Segment[]): boolean {
-  if (draft.endMs - draft.startMs < MIN_SEGMENT_MS) return false;
-  return !others.some((segment) => overlaps(segment, draft));
+  return assessDraft(draft, others).kind === 'ok';
 }
