@@ -7,7 +7,10 @@
 import type { DB } from '@/lib/db';
 import { OverlapError, ValidationError } from '@/lib/errors';
 
-/** 库里的原始行（snake_case）。转换到领域字段在 service 层完成，与 TaskRow 的做法一致。 */
+/**
+ * 库里的原始行（snake_case，与 TaskRow 同样不做转换）。
+ * 到领域字段的映射在 service 层完成 —— repo 只管取数，不认识 camelCase。
+ */
 export type SegmentRecord = {
   id: string;
   start_ms: number;
