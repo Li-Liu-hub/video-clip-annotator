@@ -7,11 +7,16 @@ import { randomBytes } from 'node:crypto';
 import { nowMs, writeTx, type DB } from '@/lib/db';
 import { insertEntry } from '@/lib/db/repos/ledger-repo';
 import { findCurrentByTask } from '@/lib/db/repos/submission-repo';
-import { findById, rejectIfSubmitted } from '@/lib/db/repos/task-repo';
+import {
+  findById,
+  findByIdForTenant,
+  rejectIfSubmitted,
+  reopenIfRejected,
+} from '@/lib/db/repos/task-repo';
 import { NotFoundError, StateConflictError, ValidationError } from '@/lib/errors';
 import { MAX_REASON_LENGTH } from '@/lib/review-limits';
 import { writeAudit } from './audit-service';
-import type { SessionUser } from './auth-service';
+import type { SessionUser, TenantUser } from './auth-service';
 
 // 契约要求常量从本模块导出；实现放在 lib/review-limits，客户端表单才能不引 service 而取到同一个值
 export { MAX_REASON_LENGTH };
@@ -82,6 +87,46 @@ export function rejectTask(db: DB, actor: SessionUser, taskId: string, reason: s
         deltaMs: -submission.total_ms,
         entryDate: submission.local_date,
       },
+    }, { strict: true });
+  });
+}
+
+const REOPEN_CONFLICT_MESSAGE = '任务当前状态不允许重新打开';
+
+/**
+ * 重新打开被退回的任务。仅限原领取人。
+ *
+ * 只有 claimed 才能进工作台、才能再次提交，所以这是退回后唯一的出路 ——
+ * 没有它，标注员能看见自己被退回的任务、也知道原因，却改不了。
+ *
+ * 不写账本：冲正在退回时就做过了。这里补一条 submit 等于凭空把工作量再记一遍。
+ * 也不清 reject_reason：它要一直显示到下一次提交（submitIfClaimed 里才清）。
+ */
+export function reopenTask(db: DB, actor: TenantUser, taskId: string): void {
+  writeTx(db, () => {
+    // 先判归属再判状态，与其余四个动作一致：
+    // 顺序反了，「别人的任务」会被报成 409，等于承认这条任务存在。
+    // 用 findByIdForTenant 而不是 findById：跨租户由 SQL 直接过滤成「查不到」，
+    // 不在 JS 里再判一次租户 —— 少一处可能与 SQL 不一致的判断
+    const task = findByIdForTenant(db, taskId, actor.tenantId);
+    if (!task || task.claimed_by !== actor.id) {
+      throw new NotFoundError(TASK_NOT_FOUND_MESSAGE);
+    }
+
+    // 只看 changes：并发下两个请求同时重新打开，只有一个能成
+    if (!reopenIfRejected(db, { taskId, tenantId: task.tenant_id, userId: actor.id, nowMs: nowMs() })) {
+      throw new StateConflictError(REOPEN_CONFLICT_MESSAGE);
+    }
+
+    writeAudit(db, {
+      actorId: actor.id,
+      actorRole: actor.role,
+      tenantId: task.tenant_id,
+      action: 'task.reopen',
+      targetType: 'task',
+      targetId: taskId,
+      // 记下退回原因与来源状态，账本上「先归零又涨上去」才解释得通
+      detail: { previousStatus: 'rejected', rejectReason: task.reject_reason },
     }, { strict: true });
   });
 }

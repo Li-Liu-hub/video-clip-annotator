@@ -74,6 +74,14 @@ export default async function WorkPage({ params }: Props) {
         {readOnly ? (
           <p className="mt-1.5 text-[12px] text-good">已提交，仅供查看</p>
         ) : null}
+        {/* 退回原因只在这里出现：列表页只在 status='rejected' 时显示，
+            重新打开后状态已是 claimed —— 不带到这里，标注员就看不到要改什么 */}
+        {task.rejectReason ? (
+          <p className="mt-2 rounded-[3px] border-l-2 border-bad bg-panel-2 px-2.5 py-1.5 text-[12px] leading-relaxed text-ink-dim">
+            <span className="text-bad">退回原因：</span>
+            {task.rejectReason}
+          </p>
+        ) : null}
         {task.description ? (
           <p className="mt-1.5 text-[12.5px] leading-relaxed text-ink-dim">{task.description}</p>
         ) : null}

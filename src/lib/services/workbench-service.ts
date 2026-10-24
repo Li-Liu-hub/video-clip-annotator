@@ -18,6 +18,13 @@ export type WorkTask = {
   durationMs: number;
   videoFilename: string;
   streamUrl: string;
+  /**
+   * 上一轮退回的原因。只在「退回后重新打开」时非空，提交后清空。
+   *
+   * 必须由服务端带下来：TaskList 只在 status='rejected' 时显示原因，
+   * 重新打开后状态已是 claimed —— 不带下来的话，标注员打开工作台就看不到要改什么了。
+   */
+  rejectReason: string | null;
 };
 
 const TASK_NOT_FOUND_MESSAGE = '任务不存在';
@@ -50,6 +57,7 @@ export function getWorkTask(db: DB, actor: TenantUser, taskId: string): WorkTask
     description: task.description,
     status: task.status,
     durationMs: task.estimated_ms,
+    rejectReason: task.reject_reason,
     videoFilename: task.video_filename,
     streamUrl: streamUrlOf(task.video_id),
   };

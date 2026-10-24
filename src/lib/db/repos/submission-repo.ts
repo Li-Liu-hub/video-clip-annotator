@@ -128,9 +128,12 @@ export function findLatestByTask(
  * 取到的是 rowid 最小那一条（旧的），退回时按旧金额、旧日期冲正 ——
  * 账目静默错一笔，且写进历史日期。schema 有 superseded_by 列就是为了这个。
  */
-export function supersedeOpenByTask(db: DB, taskId: string, newId: string): void {
+export function supersedeOpenByTask(
+  db: DB,
+  args: { taskId: string; tenantId: string; newId: string },
+): void {
   db.prepare(
     `UPDATE submissions SET superseded_by = ?
-      WHERE task_id = ? AND superseded_by IS NULL AND id <> ?`,
-  ).run(newId, taskId, newId);
+      WHERE task_id = ? AND tenant_id = ? AND superseded_by IS NULL AND id <> ?`,
+  ).run(args.newId, args.taskId, args.tenantId, args.newId);
 }

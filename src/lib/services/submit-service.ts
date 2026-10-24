@@ -86,7 +86,7 @@ export function submitTask(db: DB, actor: TenantUser, taskId: string): SubmitRes
 
     // 旧快照标记为已被取代。必须在 insertSubmission 之后（FK 即时校验），
     // 且在同一个事务里：漏了的话下一次退回会按旧快照的金额冲正
-    supersedeOpenByTask(db, taskId, submissionId);
+    supersedeOpenByTask(db, { taskId, tenantId: task.tenant_id, newId: submissionId });
 
     // 状态跃迁仍是单条条件 UPDATE：漏判时这里的 changes 为 0，整个事务回滚
     if (

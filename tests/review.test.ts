@@ -11,7 +11,9 @@ import { sumByTask } from '@/lib/db/repos/ledger-repo';
 import { AppError } from '@/lib/errors';
 import { getCurrentUser } from '@/lib/server/current-user';
 import type { SessionUser, TenantUser } from '@/lib/services/auth-service';
-import { MAX_REASON_LENGTH, rejectTask } from '@/lib/services/review-service';
+import { MAX_REASON_LENGTH, rejectTask, reopenTask } from '@/lib/services/review-service';
+import { reopenIfRejected } from '@/lib/db/repos/task-repo';
+import { submitTask } from '@/lib/services/submit-service';
 
 // 403 / 401 / 400 用例需要伪造请求上下文；其余用例直接调 service，不经过这一层
 vi.mock('@/lib/server/current-user', () => ({ getCurrentUser: vi.fn() }));
@@ -469,5 +471,91 @@ describe('API 权限与请求体', () => {
     vi.mocked(getCurrentUser).mockResolvedValue(ADMIN);
     const res = await rejectPost(rejectRequest({ reason: 42 }), REJECT_CONTEXT);
     expect(res.status).toBe(400);
+  });
+});
+
+/**
+ * 重新打开：退回后的唯一出路。
+ *
+ * 退回把任务置为 rejected，而进工作台与再次提交都要求 claimed。
+ * 没有这个动作，标注员能看见自己被退回的任务、也知道原因，却改不了。
+ */
+describe('重新打开被退回的任务', () => {
+  it('重新打开后状态变回 claimed', () => {
+    reopenTask(db, ALICE, T_REJECTED);
+    expect(stateOf(T_REJECTED).status).toBe('claimed');
+  });
+
+  it('退回原因保留到下一次提交，重新打开时不清空', () => {
+    reopenTask(db, ALICE, T_REJECTED);
+    expect(stateOf(T_REJECTED).reject_reason).toBe(PREVIOUS_REASON);
+  });
+
+  it('重新打开不写账本：冲正在退回时就做过了', () => {
+    // 这里补一条 submit 等于凭空把工作量再记一遍
+    reopenTask(db, ALICE, T_REJECTED);
+    expect(sumByTask(db, T_REJECTED)).toBe(0);
+  });
+
+  it('租户不符时 repo 不命中，任务状态不变', () => {
+    // service 层的 reopenTask 只收 TenantUser（标注员），管理员连类型都过不了；
+    // 租户隔离这件事只能在 repo 谓词上验
+    const hit = reopenIfRejected(db, {
+      taskId: T_REJECTED,
+      tenantId: 'bbbbbbbbbbbbbbbb',
+      userId: ALICE_ID,
+      nowMs: 0,
+    });
+    expect({ hit, status: stateOf(T_REJECTED).status }).toEqual({ hit: false, status: 'rejected' });
+  });
+
+  it('领取人不符时 repo 不命中，任务状态不变', () => {
+    // 少了 claimed_by 谓词，同租户的另一个人就能把别人的退回任务拨成 claimed，
+    // 原作者失去退回原因，而审计记成「他 reopen 了」。这条谓词没有别的层守着
+    const hit = reopenIfRejected(db, {
+      taskId: T_REJECTED,
+      tenantId: TENANT_A,
+      userId: 'ffffffffffffffff',
+      nowMs: 0,
+    });
+    expect({ hit, status: stateOf(T_REJECTED).status }).toEqual({ hit: false, status: 'rejected' });
+  });
+
+  it('已提交的任务不能重新打开', () => {
+    expect(capture(() => reopenTask(db, ALICE, T_SUBMITTED))).toEqual({
+      threw: 'StateConflictError',
+      status: 409,
+    });
+  });
+
+  it('待领取的任务重新打开抛 NotFoundError：没有领取人，归属就不成立', () => {
+    // 先归属后状态：pending 的 claimed_by 是 NULL，这一关就过不了，
+    // 轮不到判「状态对不对」。给它 409 等于承认这条任务与调用者有关
+    expect(capture(() => reopenTask(db, ALICE, T_PENDING))).toEqual({
+      threw: 'NotFoundError',
+      status: 404,
+    });
+  });
+
+  it('重新打开后再次提交，净额等于新的 total', () => {
+    // 完整链路：已提交 → 退回（冲正）→ 重新打开 → 再提交。
+    // 只测「reopen 后净额为 0」是不够的 —— 那条在重新打开时就看得到，
+    // 真正的闭环是「还能不能再提交一次，且金额不翻倍」
+    rejectTask(db, ADMIN, T_SUBMITTED, REASON);
+    reopenTask(db, ALICE, T_SUBMITTED);
+
+    // 再提交要有片段可提交：给这条任务补一段
+    db.prepare(
+      `INSERT INTO segments (id, task_id, tenant_id, start_ms, end_ms, label, created_at)
+       VALUES (?, ?, ?, 0, 5000, NULL, ?)`,
+    ).run('9999999999999999', T_SUBMITTED, TENANT_A, 0);
+
+    const result = submitTask(db, ALICE, T_SUBMITTED);
+    expect(sumByTask(db, T_SUBMITTED)).toBe(result.totalMs);
+  });
+
+  it('记一条 task.reopen 审计', () => {
+    reopenTask(db, ALICE, T_REJECTED);
+    expect(countAudit('task.reopen')).toBe(1);
   });
 });

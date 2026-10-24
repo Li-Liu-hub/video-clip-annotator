@@ -182,6 +182,29 @@ export function claimIfPending(
 }
 
 /**
+ * 仅当任务仍为 rejected 且属于该标注员时，改回 claimed。返回是否命中。
+ *
+ * 四个谓词都不能少：租户防跨租户、claimed_by 防同事抢走别人被退回的任务、
+ * status 防对已提交或待领取的任务误用。
+ *
+ * 不回 pending 而是留在原人名下：退回的任务应当由原作者修改 ——
+ * 他知道当时为什么那么标。真要让别人接是「重新分配」，另一件事。
+ */
+export function reopenIfRejected(
+  db: DB,
+  args: { taskId: string; tenantId: string; userId: string; nowMs: number },
+): boolean {
+  const result = db
+    .prepare(
+      `UPDATE tasks
+          SET status = 'claimed', claimed_at = ?
+        WHERE id = ? AND tenant_id = ? AND claimed_by = ? AND status = 'rejected'`,
+    )
+    .run(args.nowMs, args.taskId, args.tenantId, args.userId);
+  return result.changes > 0;
+}
+
+/**
  * 仅当任务由该用户领取且状态为 claimed 时归还。返回是否命中。
  *
  * claimed_by 与 status 两个谓词都不能省：
