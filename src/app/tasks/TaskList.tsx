@@ -14,6 +14,7 @@
  */
 import Link from 'next/link';
 import { Fragment, useState } from 'react';
+import { withBasePath } from '@/lib/base-path';
 import { MAX_REASON_LENGTH } from '@/lib/review-limits';
 import { formatDuration, localDateOf } from '@/lib/time';
 
@@ -124,7 +125,7 @@ export default function TaskList({
 
     let status: number;
     try {
-      const response = await fetch(`/api/tasks/${taskId}/${kind}`, { method: 'POST' });
+      const response = await fetch(withBasePath(`/api/tasks/${taskId}/${kind}`), { method: 'POST' });
       status = response.status;
     } catch {
       // 网络层失败与 5xx 同处理：恢复可点，让人重试
@@ -176,7 +177,7 @@ export default function TaskList({
 
     let status: number;
     try {
-      const response = await fetch(`/api/tasks/${taskId}/reopen`, { method: 'POST' });
+      const response = await fetch(withBasePath(`/api/tasks/${taskId}/reopen`), { method: 'POST' });
       status = response.status;
     } catch {
       updateRow(taskId, { busy: false, notice: ACTION_FAILED_NOTICE });
@@ -217,7 +218,7 @@ export default function TaskList({
 
     let status: number;
     try {
-      const response = await fetch(`/api/tasks/${taskId}/reject`, {
+      const response = await fetch(withBasePath(`/api/tasks/${taskId}/reject`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason }),

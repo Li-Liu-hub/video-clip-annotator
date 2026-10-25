@@ -18,6 +18,7 @@
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { totalDuration } from '@/lib/interval';
+import { withBasePath } from '@/lib/base-path';
 import type { Segment } from '@/lib/segment-interval';
 import { GENERIC_SAVE_FAILED, readErrorMessage, readSegment } from '@/lib/segment-payload';
 import { selectionAfterDelete, selectionAfterSave, pickNextSelection } from '@/lib/segment-selection';
@@ -403,7 +404,7 @@ export default function Workbench({ task, initialSegments, readOnly = false }: P
      */
     const before = segmentsRef.current;
     try {
-      const response = await fetch(`/api/tasks/${task.id}/segments/${id}`, { method: 'DELETE' });
+      const response = await fetch(withBasePath(`/api/tasks/${task.id}/segments/${id}`), { method: 'DELETE' });
       if (!response.ok) {
         const payload: unknown = await response.json().catch(() => null);
         setSaveError(readErrorMessage(payload));
@@ -439,7 +440,7 @@ export default function Workbench({ task, initialSegments, readOnly = false }: P
     setSaveError(null);
     setSubmitting(true);
     try {
-      const response = await fetch(`/api/tasks/${task.id}/submit`, { method: 'POST' });
+      const response = await fetch(withBasePath(`/api/tasks/${task.id}/submit`), { method: 'POST' });
       if (!response.ok) {
         setSaveError(readErrorMessage(await response.json().catch(() => null)));
         // 失败必须复位：否则按钮永远停在「提交中…」，用户只能刷新页面
@@ -509,7 +510,7 @@ export default function Workbench({ task, initialSegments, readOnly = false }: P
     // 操作前的数组：成功后才记步，失败时状态没变，记一步只会让 Ctrl+Z「无事发生」
     const before = segmentsRef.current;
     try {
-      const response = await fetch(`/api/tasks/${task.id}/segments`, {
+      const response = await fetch(withBasePath(`/api/tasks/${task.id}/segments`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

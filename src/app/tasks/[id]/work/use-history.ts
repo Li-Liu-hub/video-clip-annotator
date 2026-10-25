@@ -19,6 +19,7 @@ import {
   type History,
   type HistoryInterval,
 } from '@/lib/history';
+import { withBasePath } from '@/lib/base-path';
 import { readSegmentList, upsertPayloadOf } from '@/lib/segment-payload';
 import type { SegmentRow } from '@/lib/services/segment-service';
 
@@ -50,7 +51,7 @@ type Result = {
   busyRef: RefObject<boolean>;
 };
 
-const SEGMENTS_URL = (taskId: string) => `/api/tasks/${taskId}/segments`;
+const SEGMENTS_URL = (taskId: string) => withBasePath(`/api/tasks/${taskId}/segments`);
 
 /** 读错误体。响应不是 JSON 时给 null，由调用方降级成通用文案。 */
 async function readJson(response: Response): Promise<unknown> {

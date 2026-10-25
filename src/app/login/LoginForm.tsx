@@ -4,6 +4,7 @@
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
+import { withBasePath } from '@/lib/base-path';
 import { DEMO_ACCOUNTS } from '@/lib/demo-accounts';
 import { homePathOf } from '@/lib/routes';
 
@@ -41,7 +42,7 @@ export default function LoginForm() {
     setError(null);
     setBusy(true);
     try {
-      const res = await fetch('/api/auth/login', {
+      const res = await fetch(withBasePath('/api/auth/login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: u, password: p }),

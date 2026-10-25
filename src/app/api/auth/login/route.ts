@@ -112,7 +112,11 @@ export async function POST(request: Request) {
       path: '/',
       // cookie 的 maxAge 单位是秒，传毫秒等于永不过期
       maxAge: SESSION_TTL_SECONDS,
-      secure: process.env.NODE_ENV === 'production',
+      // 默认仍按生产开 Secure；只有显式 SESSION_COOKIE_SECURE=0 才关。
+      // 用于「没有 TLS 的内网 / 演示部署」——Secure cookie 在 http 下浏览器根本不存，
+      // 表现为登录接口 200、下一跳又被踢回登录页。对外生产不要关。
+      secure:
+        process.env.SESSION_COOKIE_SECURE !== '0' && process.env.NODE_ENV === 'production',
     });
     return response;
   } catch (err) {

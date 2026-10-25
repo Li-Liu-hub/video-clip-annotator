@@ -4,6 +4,7 @@
  * 上限与 MIME 白名单来自 lib/video-limits（纯常量模块）。
  * 不能从 video-service 取：那个模块依赖 node:fs，被浏览器 bundle 引用会在导入期失败。
  */
+import { withBasePath } from '@/lib/base-path';
 import { ACCEPTED_MIME, MAX_VIDEO_BYTES } from '@/lib/video-limits';
 
 const MAX_UPLOAD_MB = MAX_VIDEO_BYTES / 1024 / 1024;
@@ -175,7 +176,7 @@ export function uploadVideo(
     xhr.ontimeout = () => reject(new Error('上传超时，请重试'));
     xhr.onabort = () => reject(new Error('已取消上传'));
 
-    xhr.open('POST', '/api/videos');
+    xhr.open('POST', withBasePath('/api/videos'));
     xhr.setRequestHeader('Content-Type', file.type);
     // HTTP 头必须是 ASCII：中文文件名直接写入会抛错或乱码，服务端按约定解码
     xhr.setRequestHeader('x-filename', encodeURIComponent(file.name));

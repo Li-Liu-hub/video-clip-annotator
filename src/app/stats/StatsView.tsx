@@ -10,6 +10,7 @@
  * 只从 service 取类型，不 import 运行期模块：那会把 repos 与 better-sqlite3 拖进浏览器 bundle。
  */
 import Link from 'next/link';
+import { withBasePath } from '@/lib/base-path';
 import { formatHumanDuration } from '@/lib/duration-format';
 import type { StatsDimension, StatsResult } from '@/lib/services/stats-service';
 import { RANGE_PRESETS, countDays, queryOf, rangeOf, type DateRange } from '@/lib/stats-range';
@@ -72,7 +73,7 @@ export default function StatsView({ result, range, today, isAdmin, rangeAdjusted
 
         {/* 同源 GET 且带 download：浏览器直接落盘，不必先经内存转一手。
             客户端 fetch + createObjectURL 会让大文件卡在内存里，还多一个垃圾 URL */}
-        <a className="btn btn-ghost" href={`/api/stats/export?${query}`} download>
+        <a className="btn btn-ghost" href={withBasePath(`/api/stats/export?${query}`)} download>
           导出 CSV
         </a>
       </div>

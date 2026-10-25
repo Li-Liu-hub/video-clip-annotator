@@ -8,6 +8,7 @@
  * 归属与状态的判定不在这里重写：requireReadableTask 是唯一一份。
  * 抄一遍的代价是「工作台能开、片段列表 404」这类静默分叉 —— 改状态机时只改一处。
  */
+import { withBasePath } from '@/lib/base-path';
 import type { DB } from '@/lib/db';
 import type { TenantUser } from './auth-service';
 import { requireReadableTask } from './segment-service';
@@ -36,7 +37,7 @@ export type WorkTask = {
  * 也不签临时 token —— 同源的 <video src> 天然带 Cookie，接口按 session 鉴权。
  */
 function streamUrlOf(videoId: string): string {
-  return `/api/videos/${videoId}/stream`;
+  return withBasePath(`/api/videos/${videoId}/stream`);
 }
 
 /** 取工作台任务。不是自己领取的、状态不对的，一律 NotFoundError。 */

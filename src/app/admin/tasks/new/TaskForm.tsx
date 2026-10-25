@@ -10,6 +10,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { withBasePath } from '@/lib/base-path';
 import { MAX_TITLE_LENGTH } from '@/lib/task-limits';
 import { formatDuration } from '@/lib/time';
 
@@ -96,7 +97,7 @@ export default function TaskForm({ videos, tenants }: TaskFormProps) {
     setError(null);
 
     try {
-      const res = await fetch('/api/tasks', {
+      const res = await fetch(withBasePath('/api/tasks'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

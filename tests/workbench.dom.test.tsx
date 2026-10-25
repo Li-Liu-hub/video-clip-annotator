@@ -46,9 +46,9 @@ let calls: Call[] = [];
 let store: SegmentRow[] = [];
 let releaseDelete: (() => void) | null = null;
 
-function json(body: unknown): Response {
+function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
-    status: 200,
+    status,
     headers: { 'content-type': 'application/json' },
   });
 }

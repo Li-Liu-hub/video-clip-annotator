@@ -61,6 +61,10 @@ NEXT_PUBLIC_DEMO_LOGIN=1 npm run dev          # 登录页出现「演示账号�
 
 生产形态用 `npm run build && npm start`。
 
+**线上演示**：<http://49.234.49.192/vsap/login>（HTTP，演示数据，勿放真实内容）。
+部署在既有 80 端口 nginx 的子路径下；结构、环境变量与重建步骤见
+[`docs/DEPLOY.md`](docs/DEPLOY.md)。
+
 ## 四个角色能做什么
 
 系统只有两种能力集合，演示数据里是四个账号（三个标注员各自独占一个租户，
@@ -124,7 +128,7 @@ tasks 1 ── n ledger_entries  （提交 +N，退回 −N，都指向对应的
 ```bash
 npx tsc --noEmit          # 类型
 npx eslint .              # 全仓，含分层依赖规则
-npm test                  # 867 例；pretest 另跑规范扫描 + 临时库不变量检查
+npm test                  # 869 例；pretest 另跑规范扫描 + 临时库不变量检查
 npm run build             # 生产构建
 npm run verify            # 全量门禁：npm test + test:browser（59 项，自动起停服务）
 ```

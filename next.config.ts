@@ -2,6 +2,8 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
+  // 部署到 nginx 子路径时由构建环境注入（例如 /vsap）；本地不设，仍是根路径。
+  basePath: process.env.NEXT_PUBLIC_BASE_PATH || undefined,
   // better-sqlite3 是原生模块，必须排除在打包之外由 Node 直接加载
   serverExternalPackages: ['better-sqlite3'],
   poweredByHeader: false,
