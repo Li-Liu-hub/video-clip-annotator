@@ -135,13 +135,20 @@ $ grep -rl "admin123" .next/static
 
 ---
 
-## 6 低：缺安全响应头
+## 6 低：缺安全响应头 —— **已修（O4）**
 
 `next.config.ts` 只设了 `poweredByHeader: false`。没有 CSP / `frame-ancestors` /
 `X-Frame-Options` / `nosniff`。
 
 **后果**：管理端可被任意站点 iframe 嵌套 + 透明覆盖，诱导管理员点「退回」
 （点击劫持，绕过 SameSite）。
+
+**O4 修法**：`next.config.ts` 的 `headers()` 对 `/:path*` 下发
+`X-Frame-Options: DENY`、`Content-Security-Policy: frame-ancestors 'none'`、
+`X-Content-Type-Options: nosniff`、`Referrer-Policy: same-origin`。
+不写完整 CSP：Next 需要 inline script，没有 nonce 管线时严格 CSP 只会把页面打挂。
+`tests/next-config.test.ts` 直接调用 `headers()` 钉住四条值与作用范围
+（变异：改成只覆盖 `/admin` → 恰好 1 例红）。
 
 ---
 

@@ -109,7 +109,7 @@ tasks 1 ── n ledger_entries  （提交 +N，退回 −N，都指向对应的
 ```bash
 npx tsc --noEmit          # 类型
 npx eslint .              # 全仓，含分层依赖规则
-npm test                  # 850 例；pretest 另跑规范扫描 + 临时库不变量检查
+npm test                  # 853 例；pretest 另跑规范扫描 + 临时库不变量检查
 npm run build             # 生产构建
 ```
 
@@ -141,7 +141,7 @@ npm run invariant:check -- --temp # 一次性内存库：种子 + 完整业务�
 这里只列**自动化替代不了**的部分：
 
 1. **撤销方向不在门禁里**（H1）。栈操作是纯函数、测得很扎实，但「Workbench 的调用点传的是
-   before 还是 after」不在测试范围内 —— 实测把它改错后 510 例全绿（850 例同样覆盖不到）。
+   before 还是 after」不在测试范围内 —— 实测把它改错后 510 例全绿（853 例同样覆盖不到）。
    已用一次性 Playwright 脚本验过：拖拽创建、删除两条路径都回到原区间。
    但脚本不在 `npm test` 里，改 Workbench 不会自动发现回归。
 2. **并发删除守卫**（O1c）。已用脚本把 DELETE 延迟 2 秒拉长在途窗口：

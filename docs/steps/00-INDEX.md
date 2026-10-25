@@ -6,8 +6,8 @@
 
 > **文档状态：33 / 33**
 >
-> 已完成 A1–I3 共 33 个功能点（另加计划外的 E8a，M4 之后的加固 O1–O3，
-> 以及收尾 P1–P3），850 例自动化测试 + 53 项全链路验收（`scripts/e2e-check.mjs`）
+> 已完成 A1–I3 共 33 个功能点（另加计划外的 E8a，M4 之后的加固 O1–O4，
+> 以及收尾 P1–P3），853 例自动化测试 + 53 项全链路验收（`scripts/e2e-check.mjs`）
 > + 五组七条不变量检查（`scripts/invariant-check.mjs`）。验收记录见 [`docs/REPORT.md`](../REPORT.md)。
 >
 > 已知未修项见文末「未修的已知项」表 —— 那张表是账本，不是待办清单：
@@ -142,6 +142,7 @@ M4 之后的收口项：不改功能边界，只补交付前的安全缺口与�
 | O1  | 认证加固（演示账号默认关闭、改密接口、异步 scrypt、登录失败计数） | [34-auth-hardening](34-auth-hardening.md)   | B1 B3 | 3h  |
 | O2  | 重复实现收口（归属门禁三份、上传上限两份、`newId`）+ 写接口同源校验 | [35-dedup-csrf](35-dedup-csrf.md)           | O1  | 1.5h |
 | O3  | 提交的 TOCTOU 与服务端视频时长                       | [36-toctou-duration](36-toctou-duration.md) | F1 C1 | 1h  |
+| O4  | 安全响应头（iframe 嵌套、MIME 嗅探、Referer）           | [38-security-headers](38-security-headers.md) | —    | 0.5h |
 
 ## P · 收尾
 

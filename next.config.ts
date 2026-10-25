@@ -16,6 +16,29 @@ const nextConfig: NextConfig = {
   env: {
     NEXT_PUBLIC_DEMO_LOGIN: process.env.NEXT_PUBLIC_DEMO_LOGIN ?? '',
   },
+  /**
+   * 安全响应头（O4）。
+   *
+   * 管理端的「退回」是不可撤销的写操作，被 iframe 套一层透明覆盖就能骗管理员点下去；
+   * SameSite 拦不住这种同站请求伪造。frame-ancestors 与 X-Frame-Options 一起给，
+   * 前者是现代浏览器的口径，后者兜旧浏览器。
+   *
+   * 不写完整 CSP：Next 的运行时需要 inline script，没有 nonce 基础设施时
+   * 强行上 CSP 只会把页面打挂。这里只封「被嵌框」这一条，收益明确、代价为零。
+   */
+  async headers() {
+    return [
+      {
+        source: '/:path*',
+        headers: [
+          { key: 'X-Frame-Options', value: 'DENY' },
+          { key: 'Content-Security-Policy', value: "frame-ancestors 'none'" },
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'Referrer-Policy', value: 'same-origin' },
+        ],
+      },
+    ];
+  },
 };
 
 export default nextConfig;

@@ -95,7 +95,7 @@
 - [x] 新建带 label → 落库；label 超 80 字符 → 400；非字符串 → 400
 - [x] `diffIntervals` 的 toCreate 带 label；删除后撤销的 restore 带 label
 - [x] `upsertPayloadOf` 产出含 label 的载荷（漏传会编译失败）
-- [x] 全量 850 例全绿（P1 新增 18 例）
+- [x] 全量 850 例全绿（P1 新增 18 例；O4 之后为 853）
 
 **浏览器**（`.workbuddy/browser-polish.py`，20/20）
 
