@@ -29,6 +29,25 @@ export function findById(db: DB, id: string): UserRow | null {
   return (row as UserRow | undefined) ?? null;
 }
 
+export type UserOptionRow = {
+  id: string;
+  display_name: string;
+  role: 'admin' | 'annotator';
+  tenant_id: string | null;
+};
+
+/**
+ * 全部用户，供筛选下拉使用。
+ *
+ * 不带租户谓词：审计是管理员视角的全局信息，登录失败记录里的账号可能属于任何租户。
+ */
+export function listAll(db: DB): UserOptionRow[] {
+  // audit-ignore: 管理员筛选下拉，跨租户列人
+  return db
+    .prepare('SELECT id, display_name, role, tenant_id FROM users ORDER BY display_name')
+    .all() as UserOptionRow[];
+}
+
 /**
  * 登录成功后装配身份用：一次取到用户与其租户。
  *

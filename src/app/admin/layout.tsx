@@ -7,12 +7,12 @@
 import Link from 'next/link';
 import { requireAdmin } from '@/lib/server/guards';
 
-/** 视频与任务页已实现；审计仍用 null 表示「不跳转」。统计页在 /admin 之外 —— 管理员与标注员共用同一个页面。 */
+/** 四个入口都已实现；统计页在 /admin 之外 —— 管理员与标注员共用同一个页面。 */
 const NAV = [
   { href: '/admin/videos', label: '视频' },
   { href: '/admin/tasks', label: '任务' },
   { href: '/stats', label: '统计' },
-  { href: null, label: '审计' },
+  { href: '/admin/audit', label: '审计' },
 ] as const;
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -45,40 +45,18 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           管理台
         </p>
         <nav className="mt-2 space-y-0.5" aria-label="管理台导航">
-          {NAV.map((item, index) => {
-            const number = (
-              <span className={`tnum text-[11px] ${item.href ? 'text-accent' : 'text-ink-faint'}`}>
+          {NAV.map((item, index) => (
+            <Link
+              key={item.label}
+              href={item.href}
+              className="flex items-center gap-2.5 rounded-md bg-panel-2 px-2.5 py-2 text-ink ring-1 ring-line"
+            >
+              <span className="tnum text-[11px] text-accent">
                 {String(index + 1).padStart(2, '0')}
               </span>
-            );
-
-            if (!item.href) {
-              return (
-                // 用 span 而非 disabled button：它不是「点了会触发什么」的控件，只是一项未开放的入口
-                <span
-                  key={item.label}
-                  aria-disabled="true"
-                  title="后续版本"
-                  className="flex cursor-not-allowed items-center gap-2.5 rounded-md px-2.5 py-2 text-ink-faint opacity-60"
-                >
-                  {number}
-                  <span className="text-[13px]">{item.label}</span>
-                </span>
-              );
-            }
-
-            return (
-              <Link
-                key={item.label}
-                href={item.href}
-                aria-current="page"
-                className="flex items-center gap-2.5 rounded-md bg-panel-2 px-2.5 py-2 text-ink ring-1 ring-line"
-              >
-                {number}
-                <span className="text-[13px]">{item.label}</span>
-              </Link>
-            );
-          })}
+              <span className="text-[13px]">{item.label}</span>
+            </Link>
+          ))}
         </nav>
 
         <div className="mt-auto border-t border-line-soft px-1 pt-4">

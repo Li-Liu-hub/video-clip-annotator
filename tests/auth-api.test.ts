@@ -302,9 +302,11 @@ describe('POST /api/auth/login', () => {
     expect(audits('auth.login')).toHaveLength(1);
   });
 
-  it('登录失败写入一条 actorId 为 null 的 auth.login_failed 审计', async () => {
+  it('密码错写入的 auth.login_failed 关联到被尝试的账号', async () => {
+    // H1 收尾时改了这条语义：密码错时账号是确定的，把 actor_id 记下来，
+    // 追溯不必只靠 detail.username。actor_id 为 NULL 只发生在用户名根本不存在时。
     await login({ username: 'alice', password: 'wrong-password' });
-    expect(audits('auth.login_failed')[0]?.actor_id).toBeNull();
+    expect(audits('auth.login_failed')[0]?.actor_id).toBe(ALICE_ID);
   });
 
   it('登录失败的审计 detail 里留有用户名，供追溯', async () => {

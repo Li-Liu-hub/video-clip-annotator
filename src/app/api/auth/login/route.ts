@@ -1,14 +1,15 @@
 /**
  * 登录与登出。
  *
- * 凭据校验、会话签发与作废都走 auth-service，审计走 audit-service；
- * 本文件只负责 HTTP 契约：解析请求体、写 / 删 cookie、取审计上下文。
+ * 凭据校验、会话签发、登录审计都在 auth-service（失败也要在抛错前落审计，放在这里就晚了）；
+ * 本文件只负责 HTTP 契约：解析请求体、写 / 删 cookie、采集审计上下文。
  * 状态码与错误码由 errors.ts 统一决定，不在 handler 里另拼一份。
  */
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { getDb } from '@/lib/server/db';
-import { UnauthorizedError, ValidationError, toErrorResponse } from '@/lib/errors';
+import { ValidationError, toErrorResponse } from '@/lib/errors';
+import { AUTH_LOGOUT_ACTION } from '@/lib/audit-actions';
 import {
   destroySession,
   loginWithFreshSession,
@@ -19,7 +20,6 @@ import {
 import { writeAudit, type AuditEntry } from '@/lib/services/audit-service';
 
 const SESSION_TTL_SECONDS = SESSION_TTL_MS / 1000;
-const CREDENTIAL_FAILURE = 'bad_credentials';
 
 /** 路由层不得 import @/lib/db，连接类型从适配层返回值推导 */
 type Db = ReturnType<typeof getDb>;
@@ -72,30 +72,20 @@ function errorResponse(err: unknown): NextResponse {
 export async function POST(request: Request) {
   const db = getDb();
   const { ip, userAgent } = readContext(request);
-  // 失败审计要能追溯「谁在试」，凭据校验一过就拿不到原始输入了
-  let username = '';
 
   try {
     const credentials = await readCredentials(request);
-    username = credentials.username;
 
     const staleSessionId = (await cookies()).get(SESSION_COOKIE)?.value;
+    // 审计上下文一并交给 service：登录成功与三种失败的记录都在那里写，
+    // 且失败记录必须先于抛错落库（顺序在 auth-service 内保证）
     const { user, sessionId } = loginWithFreshSession(
       db,
       credentials.username,
       credentials.password,
       staleSessionId,
+      { ip, userAgent },
     );
-
-    audit(db, {
-      actorId: user.id,
-      actorRole: user.role,
-      tenantId: user.tenantId,
-      action: 'auth.login',
-      detail: { username: user.username },
-      ip,
-      userAgent,
-    });
 
     // 会话 id 只走 httpOnly cookie，不进响应体：否则 XSS 直接读得到
     const response = NextResponse.json({ ok: true, role: user.role });
@@ -109,18 +99,6 @@ export async function POST(request: Request) {
     });
     return response;
   } catch (err) {
-    // 只有「凭据不正确」算登录失败事件；参数缺失是请求拼错了，不是认证尝试
-    if (err instanceof UnauthorizedError) {
-      audit(db, {
-        actorId: null, // 未通过认证，没有身份；追溯只能靠 detail.username
-        actorRole: null,
-        tenantId: null,
-        action: 'auth.login_failed',
-        detail: { username, reason: CREDENTIAL_FAILURE },
-        ip,
-        userAgent,
-      });
-    }
     return errorResponse(err);
   }
 }
@@ -141,7 +119,7 @@ export async function DELETE(request: Request) {
       actorId: user.id,
       actorRole: user.role,
       tenantId: user.tenantId,
-      action: 'auth.logout',
+      action: AUTH_LOGOUT_ACTION,
       ...readContext(request),
     });
   }

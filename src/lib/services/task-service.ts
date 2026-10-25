@@ -22,6 +22,7 @@ import {
 import { findById as findVideoById } from '@/lib/db/repos/video-repo';
 import { findById as findTenantById, listAll as listAllTenants } from '@/lib/db/repos/tenant-repo';
 import { ForbiddenError, NotFoundError, StateConflictError, ValidationError } from '@/lib/errors';
+import { AUDIT_ACTIONS } from '@/lib/audit-actions';
 import { MAX_TITLE_LENGTH } from '@/lib/task-limits';
 import { writeAudit } from './audit-service';
 import { isTenantUser, type SessionUser, type TenantUser } from './auth-service';
@@ -162,7 +163,7 @@ export function createTasks(
         actorId: actor.id,
         actorRole: actor.role,
         tenantId,
-        action: 'task.create',
+        action: AUDIT_ACTIONS.taskCreate,
         targetType: 'task',
         targetId: id,
         detail: { videoId: input.videoId, title },
@@ -224,7 +225,7 @@ export function claimTask(db: DB, actor: TenantUser, taskId: string): TaskRow {
       actorId: actor.id,
       actorRole: 'annotator',
       tenantId: actor.tenantId,
-      action: 'task.claim',
+      action: AUDIT_ACTIONS.taskClaim,
       targetType: 'task',
       targetId: taskId,
       detail: { previousStatus: 'pending' },
@@ -261,7 +262,7 @@ export function releaseTask(db: DB, actor: TenantUser, taskId: string): void {
       actorId: actor.id,
       actorRole: 'annotator',
       tenantId: actor.tenantId,
-      action: 'task.release',
+      action: AUDIT_ACTIONS.taskRelease,
       targetType: 'task',
       targetId: taskId,
       detail: { previousStatus: 'claimed' },

@@ -10,6 +10,7 @@ import { insertEntry } from '@/lib/db/repos/ledger-repo';
 import { listByTask } from '@/lib/db/repos/segment-repo';
 import { insertSubmission, supersedeOpenByTask } from '@/lib/db/repos/submission-repo';
 import { submitIfClaimed } from '@/lib/db/repos/task-repo';
+import { AUDIT_ACTIONS } from '@/lib/audit-actions';
 import { StateConflictError } from '@/lib/errors';
 import { writeAudit } from './audit-service';
 import type { TenantUser } from './auth-service';
@@ -120,7 +121,7 @@ export function submitTask(db: DB, actor: TenantUser, taskId: string): SubmitRes
         actorId: actor.id,
         actorRole: actor.role,
         tenantId: task.tenant_id,
-        action: 'task.submit',
+        action: AUDIT_ACTIONS.taskSubmit,
         targetType: 'task',
         targetId: taskId,
         // localDate 一并记下：事后不 join submissions 也能回答「这笔记到哪一天」

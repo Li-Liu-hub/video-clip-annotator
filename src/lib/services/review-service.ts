@@ -14,6 +14,7 @@ import {
   reopenIfRejected,
 } from '@/lib/db/repos/task-repo';
 import { NotFoundError, StateConflictError, ValidationError } from '@/lib/errors';
+import { AUDIT_ACTIONS } from '@/lib/audit-actions';
 import { MAX_REASON_LENGTH } from '@/lib/review-limits';
 import { writeAudit } from './audit-service';
 import type { SessionUser, TenantUser } from './auth-service';
@@ -77,7 +78,7 @@ export function rejectTask(db: DB, actor: SessionUser, taskId: string, reason: s
       actorId: actor.id,
       actorRole: actor.role,
       tenantId: task.tenant_id,
-      action: 'task.reject',
+      action: AUDIT_ACTIONS.taskReject,
       targetType: 'task',
       targetId: taskId,
       detail: {
@@ -122,7 +123,7 @@ export function reopenTask(db: DB, actor: TenantUser, taskId: string): void {
       actorId: actor.id,
       actorRole: actor.role,
       tenantId: task.tenant_id,
-      action: 'task.reopen',
+      action: AUDIT_ACTIONS.taskReopen,
       targetType: 'task',
       targetId: taskId,
       // 记下退回原因与来源状态，账本上「先归零又涨上去」才解释得通

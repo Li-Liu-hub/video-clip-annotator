@@ -13,15 +13,21 @@
  *
  * 默认值是旁路，因为认证是高频且可重试的；业务写必须显式要求严格，
  * 免得后来的人顺手一调又把事务完整性弄丢。
+ *
+ * 判据只有一句：**这次操作如果没留下审计，业务数据会不会变成无法解释的状态？**
+ * 会 → 严格；不会 → 旁路。提交/退回/重新打开会改变账本与状态，属前者；
+ * 登录只产生一条会话，丢日志不影响账目，属后者。
  */
 import type { DB } from '@/lib/db';
+import type { AuditAction } from '@/lib/audit-actions';
 import { insertAudit } from '@/lib/db/repos/audit-repo';
 
 export type AuditEntry = {
   actorId: string | null;
   actorRole: string | null;
   tenantId: string | null;
-  action: string;
+  /** 收窄自 string：动作名只能取自 AUDIT_ACTIONS，拼错变成编译错误而不是一条查不到的死数据 */
+  action: AuditAction;
   targetType?: string | null;
   targetId?: string | null;
   detail?: unknown;

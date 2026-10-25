@@ -14,7 +14,9 @@ import {
   findSessionWithUser,
   insertSession,
 } from '@/lib/db/repos/session-repo';
+import { AUDIT_ACTIONS } from '@/lib/audit-actions';
 import { UnauthorizedError } from '@/lib/errors';
+import { writeAudit, type AuditEntry } from './audit-service';
 
 export type SessionUser = {
   id: string;
@@ -56,6 +58,17 @@ const SESSION_ID_BYTES = 24;
 /** 管理员不属于任何租户，取不到 tenants.timezone；统计页的管理员视图仍需按日分组 */
 const DEFAULT_TIMEZONE = 'Asia/Shanghai';
 const CREDENTIAL_MESSAGE = '用户名或密码不正确';
+
+/**
+ * 登录失败的三种原因，只写进审计，不进响应 —— 对外三种共用上面那一句文案。
+ *
+ * 分开记是因为行为模式不同：撞库会有大量 no_such_user，记错密码集中在少数几个 bad_password。
+ * inactive 指凭据正确但账号不可用（见 isUsableIdentity）。
+ */
+export type LoginFailureReason = 'bad_password' | 'no_such_user' | 'inactive';
+
+/** 请求上下文由路由层采集后注入：service 层不得 import next/headers。 */
+export type AuthAuditContext = { ip?: string | null; userAgent?: string | null };
 
 export function hashPassword(plain: string): string {
   const salt = randomBytes(SALT_BYTES);
@@ -100,27 +113,85 @@ function getDummyHash(): string {
 }
 
 /** 校验凭据并返回身份。失败统一抛 UnauthorizedError，不区分「用户不存在」与「密码错」。 */
-export function authenticate(db: DB, username: string, password: string): SessionUser {
+export function authenticate(
+  db: DB,
+  username: string,
+  password: string,
+  context: AuthAuditContext = {},
+): SessionUser {
   const credential = findByUsername(db, username);
 
   // 无论用户是否存在都跑一次 scrypt，消除时间侧信道
   const passwordOk = verifyPassword(password, credential?.password_hash ?? getDummyHash());
 
-  // 两种失败必须是同一条分支：分叉就等于给攻击者一个枚举用户名的信号
-  if (!credential || !passwordOk) {
-    throw new UnauthorizedError(CREDENTIAL_MESSAGE);
-  }
+  // 三种失败原因分开记在审计里，对外却共用同一个出口 —— 泄漏「用户不存在」
+  // 等于送攻击者半个用户名枚举器，所以响应里说粗的、日志里记细的。
+  if (!credential) failLogin(db, { username, reason: 'no_such_user', actorId: null, context });
+  if (!passwordOk) failLogin(db, { username, reason: 'bad_password', actorId: credential.id, context });
 
   // 身份字段单独再查一次：密码哈希不进入装配身份的那条链路
   const identity = findWithTenantById(db, credential.id);
-  if (!identity) {
-    // 校验与装配之间用户被删除，按登录失败处理，不暴露中间状态
-    throw new UnauthorizedError(CREDENTIAL_MESSAGE);
+  if (!identity || !isUsableIdentity(identity)) {
+    failLogin(db, { username, reason: 'inactive', actorId: credential.id, context });
   }
 
   // 登录是清理过期会话的天然时机，否则 sessions 表只增不减
   purgeExpiredSessions(db, nowMs());
   return toSessionUser(identity);
+}
+
+/**
+ * 登录审计的写入口，一律旁路：审计表写不进去时人还是该能登录。
+ *
+ * 这里再包一层 try/catch 而不是只依赖 writeAudit 的默认旁路，
+ * 是为了让「认证不受审计影响」成为本文件的保证，而不是被调方的实现细节。
+ */
+function auditLogin(db: DB, entry: AuditEntry): void {
+  try {
+    writeAudit(db, entry);
+  } catch {
+    // writeAudit 内部已记过 error 日志，此处只拦异常，不重复输出
+  }
+}
+
+/**
+ * 登录失败的唯一出口：**先写审计，再抛错**。
+ *
+ * 顺序反了，异常会把审计那一行一起带走 —— 所有失败登录都不留痕，
+ * 而这恰恰是被爆破时最需要留痕的路径（连续失败才是入侵信号）。
+ *
+ * 只记 username 与 reason：密码、哈希一概不写，日志会被导出、会被贴进工单。
+ */
+function failLogin(
+  db: DB,
+  args: {
+    username: string;
+    reason: LoginFailureReason;
+    actorId: string | null;
+    context: AuthAuditContext;
+  },
+): never {
+  auditLogin(db, {
+    actorId: args.actorId,
+    // 未通过认证，不写角色与租户：角色属于已认证身份；actorId 只用来把这次尝试关联到账号
+    actorRole: null,
+    tenantId: null,
+    action: AUDIT_ACTIONS.authLoginFailed,
+    detail: { username: args.username, reason: args.reason },
+    ip: args.context.ip ?? null,
+    userAgent: args.context.userAgent ?? null,
+  });
+  throw new UnauthorizedError(CREDENTIAL_MESSAGE);
+}
+
+/**
+ * 「账号可用」= 标注员确实挂在某个租户上。
+ *
+ * schema 的 CHECK 已保证这一点，但手工改库、旧库迁移会绕过它。那样装配出的会话能登录，
+ * 之后每条 tenant_id 查询都静默返空，症状离原因很远，故在登录时按不可用处理。
+ */
+function isUsableIdentity(row: UserWithTenantRow): boolean {
+  return row.role === 'admin' || (typeof row.tenant_id === 'string' && row.tenant_id.length > 0);
 }
 
 /**
@@ -135,8 +206,9 @@ export function loginWithFreshSession(
   username: string,
   password: string,
   staleSessionId?: string,
+  context: AuthAuditContext = {},
 ): { user: SessionUser; sessionId: string } {
-  const user = authenticate(db, username, password);
+  const user = authenticate(db, username, password, context);
 
   // 只销毁属于当前登录用户的旧会话。
   // 否则任何知道他人 sid 的人，都能用自己的账号登录一次把对方踢下线——反复调用即构成 DoS。
@@ -147,6 +219,25 @@ export function loginWithFreshSession(
   }
 
   const sessionId = createSession(db, user.id);
+
+  /**
+   * 成功后写在这里而不是 authenticate：会话只有签发之后才存在。
+   *
+   * detail 里**不放 sessionId**。这个 schema 里 sessions.id 就是 cookie 的值 ——
+   * 写进审计等于把一份 7 天有效的凭据存进了一张会被导出、会被贴进工单的表，
+   * 而审计页的「详情」正是原样渲染 detail 的。
+   * 事后要查「这次会话活了多久」，用 actorId + created_at 对 sessions 表即可。
+   */
+  auditLogin(db, {
+    actorId: user.id,
+    actorRole: user.role,
+    tenantId: user.tenantId,
+    action: AUDIT_ACTIONS.authLogin,
+    detail: { username: user.username },
+    ip: context.ip ?? null,
+    userAgent: context.userAgent ?? null,
+  });
+
   return { user, sessionId };
 }
 
