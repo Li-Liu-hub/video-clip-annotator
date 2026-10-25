@@ -142,9 +142,19 @@ if (!user) {
 
 审计里记细的，响应里说粗的。
 
-### 3. 成功登录的 `detail` 带 `sessionId`
+### 3. `detail` 里什么凭据都不放
 
-不记 token（那是凭据），记 session 的主键。事后可以对着 `sessions` 表查这次会话活了多久。
+**这一条原本写的是「记 session 的主键，不记 token」，是错的。**
+
+`createSession` 生成的 48 位十六进制串同时是 `sessions.id`、cookie 的值、以及这个
+`detail.sessionId` —— 三者是同一个字符串。写进审计等于把一份 7 天有效的凭据
+存进一张会被导出、会被贴进工单的表，而审计页的「详情」正是原样渲染 detail 的。
+
+事后要查「这次会话活了多久」，用 `actorId + created_at` 对 `sessions` 表即可，
+误差在毫秒级。
+
+`tests/audit.test.ts` 里有一条反向护栏：登录后遍历 `audit_logs` 全部列，
+断言不含本次 `Set-Cookie` 的值。
 
 ### 4. 不要在登录里做「连续失败 N 次锁定」
 
@@ -156,7 +166,8 @@ if (!user) {
 
 **自动**
 
-- [ ] 登录成功写一条 `auth.login`，`actorId` 是新用户，`detail.sessionId` 非空
+- [ ] 登录成功写一条 `auth.login`，`actorId` 是新用户
+- [ ] **审计的任何一列都不含本次签发的会话凭据**（反向断言，比注释可靠）
 - [ ] 密码错写一条 `auth.login_failed`，`actorId` 是该用户，`detail.reason = 'bad_password'`
 - [ ] 用户不存在写一条 `auth.login_failed`，**`actorId` 为 NULL**，`detail.username` 有值
 - [ ] 用户不存在时抛的错与密码错**同一类型、同一文案**（不泄漏）

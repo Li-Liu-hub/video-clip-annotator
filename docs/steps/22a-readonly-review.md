@@ -32,7 +32,11 @@ function requireWritableTask(db, actor, taskId): TaskRow
 > 读路径拒绝它，理由是「退回的任务已回到池子，打开会看到过期数据」——按不存在处理；
 > 写路径拒绝它，理由是「状态不允许改」——那是 409。两者不矛盾，是两个不同的问题。
 
-`listSegments` 改用 `requireOwnedTask`，`upsertSegment` / `deleteSegment` 仍用 `requireWritableTask`。
+`listSegments` 改用 `requireReadableTask`（归属 + 状态 ∈ `claimed | submitted`），
+`upsertSegment` / `deleteSegment` 仍用 `requireWritableTask`（只认 `claimed`）。
+
+**注意**：这一节原本写的是 `requireOwnedTask`（只判归属、不判状态），是错的 ——
+照那样实现的话 rejected 任务也能读到片段，与本文件 :162 的验收项直接冲突。
 
 **这不只是加个参数**：`submitted` 任务从此可读，写仍然 409。
 E4 那条「已提交的任务列片段抛 StateConflictError」的用例要改成「可以列出来」，
@@ -84,7 +88,7 @@ E4 那条「已提交的任务列片段抛 StateConflictError」的用例要改�
 
 | 文件 | 说明 |
 |---|---|
-| `src/lib/services/segment-service.ts` | 拆出 `requireOwnedTask`，`listSegments` 改用它 |
+| `src/lib/services/segment-service.ts` | 拆出 `requireReadableTask`，`listSegments` 改用它 |
 | `src/lib/services/workbench-service.ts` | `getWorkTask` 放宽到 `claimed \| submitted` |
 | `src/app/tasks/[id]/work/page.tsx` | 传 `readOnly` |
 | `src/app/tasks/[id]/work/Workbench.tsx` | `readOnly` 的四处开关 |

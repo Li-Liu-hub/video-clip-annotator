@@ -68,7 +68,7 @@ app/ → lib/server/ → lib/services/ → lib/db/repos/ → SQLite
 - 时间戳：UTC 毫秒整数，后缀 `_at`
 - 日期：`TEXT` `YYYY-MM-DD`，后缀 `_date`；写入时固化，查询期不换算
 - 时区换算唯一实现于 `lib/time.ts` 的 `localDateOf()`
-- ID：16 位十六进制，`newId()` 生成
+- ID：16 位十六进制，由各 service 用 `randomBytes(8).toString('hex')` 生成（`newId()` 这个函数不存在，历史上文档写过但没实现）
 - 区间：半开 `[start, end)`，毫秒；重叠判定 `a.start < b.end && a.end > b.start`
 - 业务查询须含 `tenant_id`（管理员路径传 `null` 且显式）
 

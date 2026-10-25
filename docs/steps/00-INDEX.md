@@ -7,7 +7,7 @@
 > **文档状态：33 / 33**
 >
 > 已完成 A1–I3 共 33 个功能点（另加计划外的 E8a），
-> 726 例自动化测试 + 53 项全链路验收（`scripts/e2e-check.mjs`）+ 五组不变量检查
+> 731 例自动化测试 + 53 项全链路验收（`scripts/e2e-check.mjs`）+ 五组不变量检查
 > （`scripts/invariant-check.mjs`）。验收记录见 [`docs/REPORT.md`](../REPORT.md)。
 >
 > 已知未修项见文末「未修的已知项」表 —— 那张表是账本，不是待办清单：
@@ -69,7 +69,7 @@
 | D1  | 任务查询与标注员任务列表页  | [11-task-query](11-task-query.md)   | B2    | 1h   |
 | D2  | 创建任务（API + 表单） | [12-task-create](12-task-create.md) | C1 D1 | 0.5h |
 | D3  | 领取与超时回收        | [13-task-claim](13-task-claim.md)   | D1    | 0.5h |
-| D4  | 管理员任务页（全租户视图）  | [14-admin-tasks](14-admin-tasks.md) | D2 D3 | 1h   |
+| D4  | 管理员任务页（全租户视图）  | [14-admin-tasks](14-review.md) | D2 D3 | 1h   |
 
 ## E · 标注工作台 ★
 
@@ -112,15 +112,15 @@
 
 | #   | 功能点                   | 文档                                | 依赖  | 预计   |
 | --- | --------------------- | --------------------------------- | --- | ---- |
-| G1  | 统计 API（按天 / 按人 / 按任务） | [26-stats-api](26-stats-api.md)   | F1  | 1h   |
-| G2  | CSV 导出                | [27-csv-export](27-csv-export.md) | G1  | 0.5h |
+| G1  | 统计 API（按天 / 按人 / 按任务） | [26-stats-api](26-stats.md)   | F1  | 1h   |
+| G2  | CSV 导出                | [27-csv-export](27-csv.md) | G1  | 0.5h |
 | G3  | 统计页（三视图切换 + 柱状图）      | [28-stats-page](28-stats-page.md) | G1  | 1.5h |
 
 ## H · 审计
 
 | #   | 功能点          | 文档                                  | 依赖  | 预计   |
 | --- | ------------ | ----------------------------------- | --- | ---- |
-| H1  | 审计写入封装与埋点    | [29-audit-write](29-audit-write.md) | A1  | 1h   |
+| H1  | 审计写入封装与埋点    | [29-audit-write](29-audit.md) | A1  | 1h   |
 | H2  | 审计查询 API 与页面 | [30-audit-page](30-audit-page.md)   | H1  | 0.5h |
 
 ## I · 验收

@@ -93,7 +93,7 @@ export function writeAudit(db: DB, entry: AuditEntry): void;
 参数缺失：400 { ok: false, error: { code: 'VALIDATION', message: '请填写用户名和密码' } }
 ```
 
-**DELETE** `/api/auth/logout`
+**DELETE** `/api/auth/login`（登出与登录同一个 route 文件，没有独立的 logout 路由）
 
 ```
 成功：200 { ok: true }

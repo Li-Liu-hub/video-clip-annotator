@@ -37,7 +37,7 @@
 export type Segment = { startMs: number; endMs: number };
 
 /** 短于这个长度的片段视为误触。 */
-export const MIN_SEGMENT_MS = 200;
+export const MIN_SEGMENT_MS = 100;
 
 /** 单次提交的片段数上限，防滥用。 */
 export const MAX_SEGMENTS = 100;

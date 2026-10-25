@@ -90,7 +90,7 @@ tasks 1 ── n ledger_entries  （提交 +N，退回 −N，都指向对应的
 ```bash
 npx tsc --noEmit          # 类型
 npx eslint .              # 全仓，含分层依赖规则
-npm test                  # 726 例；pretest 另跑规范扫描 + 临时库不变量检查
+npm test                  # 731 例；pretest 另跑规范扫描 + 临时库不变量检查
 npm run build             # 生产构建
 ```
 
@@ -122,7 +122,7 @@ npm run invariant:check -- --temp # 一次性内存库：种子 + 完整业务�
 这里只列**自动化替代不了**的部分：
 
 1. **撤销方向**（H1）。栈操作是纯函数、测得很扎实，但「Workbench 的调用点传的是
-   before 还是 after」不在测试范围内 —— 实测把它改错后 510 例全绿（本轮 726 例同样覆盖不到）。
+   before 还是 after」不在测试范围内 —— 实测把它改错后 510 例全绿（本轮 731 例同样覆盖不到）。
    手工验：拖一段 → `Ctrl+Z` → 必须回到原位；若停在原地或退回两步前，方向就反了。
 2. **并发删除守卫**（O1c）。可验证的只有结构保证（ref 跨渲染稳定 + 入口守卫）。
    手工验：DevTools 限速 Slow 3G，一指拖片段、另一指点头删，Network 里
