@@ -12,10 +12,11 @@
     "db:reset": "node scripts/setup.mjs --reset",
     "db:check": "node scripts/check-invariants.mjs",
     "db:verify-checker": "node scripts/verify-checker.mjs",
+    "invariant:check": "node scripts/invariant-check.mjs",
     "audit:rules": "node scripts/audit-rules.mjs",
     "audit:sql": "node scripts/audit-sql.mjs",
     "lint": "eslint .",
-    "pretest": "node scripts/audit-rules.mjs && node scripts/audit-sql.mjs && eslint . --quiet",
+    "pretest": "node scripts/audit-rules.mjs && node scripts/audit-sql.mjs && eslint . --quiet && node scripts/invariant-check.mjs --temp",
     "test": "vitest run",
     "test:watch": "vitest"
   },
