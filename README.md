@@ -3,6 +3,10 @@
 管理员把机器人示教视频分配出去，标注员在时间轴上标出有效片段，系统按「提交日期」
 统计每人每天的有效工作量。
 
+**当前状态**：33 个功能点 + 计划外 E8a + 加固 O1–O4 + 收尾 P1–P7 + 门禁 Q1–Q3
+全部完成。867 例单测、59 项浏览器验收、53 项全链路、五组七条不变量全绿；
+[`00-INDEX`](docs/steps/00-INDEX.md) 的已知项清单为零，剩余边界见「已知限制」。
+
 ## 这是什么
 
 替掉的是一套手工流程：标注员把起止时间填进表格，管理员每天手工汇总，**数字经常对不上**。
@@ -11,7 +15,7 @@
 退回写一笔负数，统计永远是 `SUM(账本) GROUP BY 日期`。已经写进某一天的数字，
 后续任何操作都不会改写它。
 
-界面截图待补（登录页 → 任务列表 → 标注工作台 → 统计页）。
+界面截图：选中态见 [`docs/ring-selected.png`](docs/ring-selected.png)；其余页面截图待补。
 
 ## 跑起来
 
@@ -187,4 +191,8 @@ npm run invariant:check -- --temp # 一次性内存库：种子 + 完整业务�
 - **测试分三层**：纯函数跑 node（最快）；组件接线跑 jsdom（`tests/*.dom.test.tsx`）；
   浏览器行为跑 Playwright（`scripts/browser/`）。`npm test` 只跑前两层，`verify` 跑全量。
 
-本轮的验收记录与变异验证明细见 [`docs/REPORT.md`](docs/REPORT.md)。
+## 文档
+
+- 功能点编号、契约与已知项：[`docs/steps/00-INDEX.md`](docs/steps/00-INDEX.md)
+- 验收记录与变异验证：[`docs/REPORT.md`](docs/REPORT.md)
+- CI 启用步骤：[`docs/ci/README.md`](docs/ci/README.md)
