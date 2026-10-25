@@ -104,12 +104,23 @@ tasks 1 ── n ledger_entries  （提交 +N，退回 −N，都指向对应的
 `submissions.superseded_by` 指向取代它的那条快照。同一任务下
 `superseded_by IS NULL` 的行必须恰好 0 或 1 条，否则同一份工作量会被算两次。
 
+## 键盘与无障碍
+
+工作台里：`Space` 播放/暂停、`I` / `O` 打点建片段、`Delete` 删除选中、`← →` 微调播放头、
+`Ctrl+Z` 撤销、`Esc` 取消拖拽或清除入点。
+
+- **单字符快捷键可关闭**（WCAG 2.1.4）：页脚有开关，偏好存本机 `localStorage`。
+  关闭只停空格 / I / O；`Delete`、方向键、`Ctrl+Z` 不是字符键，照常可用。
+- **删除后焦点续接**：移到下一段的选中按钮；没有下一段就移到上一段；列表空了移到空态文本。
+- **删除中可读**：按钮带 `aria-busy`，读屏文案变成「第 N 段删除中」。
+- **O 键太短有提示**：区间不足 0.1 秒时不创建，状态行说明「入点还在，挪一下再按 O」。
+
 ## 验收怎么跑
 
 ```bash
 npx tsc --noEmit          # 类型
 npx eslint .              # 全仓，含分层依赖规则
-npm test                  # 853 例；pretest 另跑规范扫描 + 临时库不变量检查
+npm test                  # 860 例；pretest 另跑规范扫描 + 临时库不变量检查
 npm run build             # 生产构建
 ```
 
@@ -141,7 +152,7 @@ npm run invariant:check -- --temp # 一次性内存库：种子 + 完整业务�
 这里只列**自动化替代不了**的部分：
 
 1. **撤销方向不在门禁里**（H1）。栈操作是纯函数、测得很扎实，但「Workbench 的调用点传的是
-   before 还是 after」不在测试范围内 —— 实测把它改错后 510 例全绿（853 例同样覆盖不到）。
+   before 还是 after」不在测试范围内 —— 实测把它改错后 510 例全绿（860 例同样覆盖不到）。
    已用一次性 Playwright 脚本验过：拖拽创建、删除两条路径都回到原区间。
    但脚本不在 `npm test` 里，改 Workbench 不会自动发现回归。
 2. **并发删除守卫**（O1c）。已用脚本把 DELETE 延迟 2 秒拉长在途窗口：
@@ -159,6 +170,6 @@ npm run invariant:check -- --temp # 一次性内存库：种子 + 完整业务�
   该处已有 RULES 授权的 `rule-exception`（批准人 CLAUDE），故保留。新增 disable 前请先读这一行。
 - **本项目没有组件测试设施**（没有 jsdom / Testing Library）。交互逻辑被拆成
   纯函数（`history` / `segment-drag` / `segment-selection` / `segment-interval`）后用单测覆盖，
-  剩下的「组件里接线」靠两轮一次性 Playwright 脚本 + 第 4 条人眼验收。
+  剩下的「组件里接线」靠三轮一次性 Playwright 脚本 + 第 4 条人眼验收。
 
 本轮的验收记录与变异验证明细见 [`docs/REPORT.md`](docs/REPORT.md)。

@@ -20,9 +20,14 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { totalDuration } from '@/lib/interval';
 import type { Segment } from '@/lib/segment-interval';
 import { GENERIC_SAVE_FAILED, readErrorMessage, readSegment } from '@/lib/segment-payload';
-import { selectionAfterDelete, selectionAfterSave } from '@/lib/segment-selection';
+import { selectionAfterDelete, selectionAfterSave, pickNextSelection } from '@/lib/segment-selection';
 import type { SegmentRow } from '@/lib/services/segment-service';
-import { SHORTCUT_HINTS, formatShortcutHint } from '@/lib/shortcuts';
+import { SHORTCUT_HINTS, TOO_SHORT_HINT, formatShortcutHint } from '@/lib/shortcuts';
+import {
+  SINGLE_KEY_SHORTCUTS_STORAGE_KEY,
+  parseSingleKeyShortcuts,
+  serializeSingleKeyShortcuts,
+} from '@/lib/shortcut-prefs';
 import { formatDuration } from '@/lib/time';
 import type { WorkTask } from '@/lib/services/workbench-service';
 import SegmentList from './SegmentList';
@@ -110,6 +115,26 @@ export default function Workbench({ task, initialSegments, readOnly = false }: P
    */
   const deletingIdRef = useRef<string | null>(null);
   /**
+   * 单字符快捷键（空格 / I / O）是否启用。WCAG 2.1.4 要求这类快捷键可关闭，
+   * 偏好存 localStorage：这是「本机手感」，不是账号级配置，没必要进服务端。
+   * 初始 true，挂载后读一次 —— 读在 effect 里才不会与服务端渲染的 HTML 不一致。
+   */
+  const [singleKeyShortcuts, setSingleKeyShortcuts] = useState(true);
+  useEffect(() => {
+    try {
+      setSingleKeyShortcuts(parseSingleKeyShortcuts(window.localStorage.getItem(SINGLE_KEY_SHORTCUTS_STORAGE_KEY)));
+    } catch {
+      // 隐私模式 / 存储被禁用：读不到偏好就保持默认开启，不因此把功能关掉
+    }
+  }, []);
+  /** O 键太短等「不是错误、但按了没反应」的提示。与 saveError 分开：颜色与语气不同。 */
+  const [hint, setHint] = useState<string | null>(null);
+  /** 删除成功后的焦点落点（G5）。null 表示没有待处理的聚焦请求。 */
+  const [focusRequest, setFocusRequest] = useState<{ targetId: string | null; seq: number } | null>(
+    null,
+  );
+  const focusSeqRef = useRef(0);
+  /**
    * 片段数组的同步副本。
    *
    * 拖拽的 onCommit 在 pointerdown 那一刻就被捕获，闭包里的 segments 是按下时的快照；
@@ -142,6 +167,19 @@ export default function Workbench({ task, initialSegments, readOnly = false }: P
   function setDeletingId(next: string | null) {
     deletingIdRef.current = next;
     setDeletingIdState(next);
+  }
+
+  /** 切换单字符快捷键并落盘。写失败只影响下次打开，不打断当前操作。 */
+  function toggleSingleKeyShortcuts(next: boolean) {
+    setSingleKeyShortcuts(next);
+    try {
+      window.localStorage.setItem(
+        SINGLE_KEY_SHORTCUTS_STORAGE_KEY,
+        serializeSingleKeyShortcuts(next),
+      );
+    } catch {
+      // 存不进去就只在本次会话生效；不弹错 —— 用户只是想关掉快捷键
+    }
   }
 
   function setCommitting(next: boolean) {
@@ -258,11 +296,13 @@ export default function Workbench({ task, initialSegments, readOnly = false }: P
    */
   function requestUndo() {
     if (committingRef.current || deletingIdRef.current !== null) return;
+    setHint(null);
     history.undo();
   }
 
   function requestRedo() {
     if (committingRef.current || deletingIdRef.current !== null) return;
+    setHint(null);
     history.redo();
   }
 
@@ -272,6 +312,7 @@ export default function Workbench({ task, initialSegments, readOnly = false }: P
      * 只禁 I / O / Delete / 撤销。整组不绑会让回顾时按空格没反应，体验断裂。
      */
     enabled: !readOnly && !history.busy && !submitting,
+    characterShortcutsEnabled: singleKeyShortcuts,
     videoRef,
     selectedId,
     // 与时间轴同一把尺子：不用 video.duration，moov 在尾部的 mp4 会读到 Infinity
@@ -283,6 +324,8 @@ export default function Workbench({ task, initialSegments, readOnly = false }: P
     },
     // 打字机打出来的区间没有「替换谁」，一律走新建
     onCreateFromMarks: (range) => void commitSegment(range, null),
+    // O 键太短：不创建、入点保留，但必须说一句，否则看起来是按键坏了
+    onTooShort: () => setHint(TOO_SHORT_HINT),
     onUndo: requestUndo,
     onRedo: requestRedo,
     canUndo: history.canUndo,
@@ -295,6 +338,7 @@ export default function Workbench({ task, initialSegments, readOnly = false }: P
       // 与「此刻是否在拖」一致，与两个监听的注册顺序无关。
       if (draggingRef.current) return;
       clearMark();
+      setHint(null);
     },
   });
 
@@ -347,6 +391,9 @@ export default function Workbench({ task, initialSegments, readOnly = false }: P
     // 否则 DELETE 与「替换 X」的 POST 赛跑，后到的那个必然 404
     if (committingRef.current) return;
     setSaveError(null);
+    // 删除开始就清掉旧提示：状态行要让位给「正在删除…」，
+    // 否则上一句「太短」会一直挂到删除结束
+    setHint(null);
     setDeletingId(id);
     /**
      * 记步要的是操作**前**的数组。
@@ -366,6 +413,11 @@ export default function Workbench({ task, initialSegments, readOnly = false }: P
       // 迁移判定抽在纯函数里：删的不是选中项时必须一动不动，
       // 这个条件写在组件里就没人守得住（见 segment-selection 的注释）
       changeSelection(selectionAfterDelete(selectedIdRef.current, id, segments));
+      // 焦点落点与选中迁移共用同一个判定：下一段 → 上一段 → 空列表。
+      // 不把焦点留在 body，否则连续整理片段要一路 Tab 回列表（G5）
+      focusSeqRef.current += 1;
+      setFocusRequest({ targetId: pickNextSelection(before, id), seq: focusSeqRef.current });
+      setHint(null);
       history.record(before);
     } catch {
       // 断网或响应不是 JSON：本地数组保持原样，服务端仍是唯一真值
@@ -478,6 +530,8 @@ export default function Workbench({ task, initialSegments, readOnly = false }: P
         setSaveError(GENERIC_SAVE_FAILED);
         return;
       }
+      // 写成功后「太短」的提示不再成立：入点已变成一个真实片段
+      setHint(null);
       const prev = segmentsRef.current;
       const kept = replacedId === null ? prev : prev.filter((row) => row.id !== replacedId);
       applySegments([...kept, saved].sort((a, b) => a.startMs - b.startMs));
@@ -551,6 +605,7 @@ export default function Workbench({ task, initialSegments, readOnly = false }: P
             selectedId={selectedId}
             // 行身份只有这一份：键盘与鼠标删除都写它，「删除中…」不会再落错行
             deletingId={deletingId}
+            focusRequest={focusRequest}
             onSelect={selectSegment}
             onDelete={removeSegment}
             busy={deletingId !== null || committing || submitting || history.busy}
@@ -567,6 +622,13 @@ export default function Workbench({ task, initialSegments, readOnly = false }: P
       >
         {saveError ? (
           <p className="text-[11.5px] text-bad">{saveError}</p>
+        ) : hint ? (
+          // 提示与错误分开：太短不是失败，用户没做错什么，只是还差一点
+          <p className="text-[11.5px] text-ink-dim">{hint}</p>
+        ) : deletingId !== null ? (
+          // 删除按钮在删除中会被 disabled，焦点随之离开；aria-busy 挂在失焦的按钮上
+          // 读屏器读不到。这一行是 aria-live 区域，状态改由它播报
+          <p className="text-[11.5px] text-ink-faint">正在删除片段…</p>
         ) : committing ? (
           <p className="text-[11.5px] text-ink-faint">保存中…</p>
         ) : history.busy ? (
@@ -606,12 +668,26 @@ export default function Workbench({ task, initialSegments, readOnly = false }: P
       )}
 
       {/* 键位提示常驻页脚：快捷键不写在界面上，用户永远不知道有 I / O。
-          文案来自 SHORTCUT_HINTS，单测锁住它不漂移 */}
-      <p className="px-1 text-[11px] leading-relaxed text-ink-faint">
-        {SHORTCUT_HINTS.filter((hint) => !readOnly || !hint.writableOnly)
-          .map(formatShortcutHint)
-          .join(' · ')}
-      </p>
+          文案来自 SHORTCUT_HINTS，单测锁住它不漂移。
+          旁边的开关是 WCAG 2.1.4 的「可关闭」：字符键快捷键不能只给一个关不掉的选择 */}
+      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1 px-1">
+        <p className="text-[11px] leading-relaxed text-ink-faint">
+          {singleKeyShortcuts
+            ? SHORTCUT_HINTS.filter((hint) => !readOnly || !hint.writableOnly)
+                .map(formatShortcutHint)
+                .join(' · ')
+            : '单字符快捷键已关闭；方向键、Delete、Ctrl+Z 仍可用，播放请点左侧按钮。'}
+        </p>
+        <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-[11px] text-ink-faint">
+          <input
+            type="checkbox"
+            checked={singleKeyShortcuts}
+            onChange={(event) => toggleSingleKeyShortcuts(event.target.checked)}
+            className="h-3 w-3 accent-[var(--color-accent-2)]"
+          />
+          单字符快捷键（空格 / I / O）
+        </label>
+      </div>
     </div>
   );
 }

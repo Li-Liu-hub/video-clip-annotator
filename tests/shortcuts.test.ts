@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   SHORTCUT_HINTS,
+  TOO_SHORT_HINT,
   formatShortcutHint,
   isTypingTarget,
   normalizeMarkRange,
@@ -80,5 +81,16 @@ describe('SHORTCUT_HINTS：页脚文案', () => {
       '← → 播放头 1s（Shift 100ms）',
       'Esc 取消拖拽 / 清除入点',
     ]);
+  });
+});
+
+describe('TOO_SHORT_HINT：太短时要说清两件事', () => {
+  it('说明为什么没建（太短），以及入点没丢', () => {
+    expect(TOO_SHORT_HINT).toContain('太短');
+    expect(TOO_SHORT_HINT).toContain('入点还在');
+  });
+
+  it('写明下限，数值来自 interval 的唯一定义', () => {
+    expect(TOO_SHORT_HINT).toContain('0.1 秒');
   });
 });

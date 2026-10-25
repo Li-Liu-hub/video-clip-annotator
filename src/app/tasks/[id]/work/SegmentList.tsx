@@ -9,6 +9,7 @@
  *
  * readOnly（已提交的任务）不渲染删除按钮：不存在的功能不该留一个永远点不了的灰按钮。
  */
+import { useEffect, useRef } from 'react';
 import type { SegmentRow } from '@/lib/services/segment-service';
 import { formatDuration } from '@/lib/time';
 
@@ -28,6 +29,13 @@ type Props = {
   busy: boolean;
   /** 只读回顾：整列删除按钮不渲染。缺省 false，E1–E7 的调用点不用改。 */
   readOnly?: boolean;
+  /**
+   * 删除成功后的焦点落点。targetId 为 null 表示列表已空，焦点移到空态文本。
+   *
+   * 不把焦点留在 body：删除后按 Tab 会从页面顶部重新开始，连续整理片段的人
+   * 得一路 Tab 回列表（G5）。seq 是触发信号 —— 同一个目标连续请求也要重新聚焦。
+   */
+  focusRequest?: { targetId: string | null; seq: number } | null;
 };
 
 export default function SegmentList({
@@ -38,10 +46,30 @@ export default function SegmentList({
   onDelete,
   busy,
   readOnly = false,
+  focusRequest = null,
 }: Props) {
+  const listRef = useRef<HTMLUListElement | null>(null);
+  const emptyRef = useRef<HTMLParagraphElement | null>(null);
+  const rowRefs = useRef(new Map<string, HTMLButtonElement>());
+
+  useEffect(() => {
+    if (!focusRequest) return;
+    const target = focusRequest.targetId
+      ? rowRefs.current.get(focusRequest.targetId)
+      : undefined;
+    // 目标行找不到（并发删除的竞态）时退回列表容器，不把焦点留在 body
+    const fallback = listRef.current ?? emptyRef.current;
+    (target ?? fallback)?.focus();
+  }, [focusRequest]);
+
   if (segments.length === 0) {
     return (
-      <p className="flex flex-1 items-center justify-center px-3.5 py-8 text-center text-[11.5px] leading-relaxed text-ink-faint">
+      <p
+        ref={emptyRef}
+        // 可编程聚焦：删除最后一段后焦点落在这里，屏幕阅读器会读出下面这句话
+        tabIndex={-1}
+        className="flex flex-1 items-center justify-center px-3.5 py-8 text-center text-[11.5px] leading-relaxed text-ink-faint"
+      >
         {readOnly ? '这个任务没有片段。' : '还没有片段。在下方时间轴上拖动即可标注。'}
       </p>
     );
@@ -49,7 +77,7 @@ export default function SegmentList({
 
   // min-h-0：flex 子项默认不小于内容高度，不加这行列表会把侧栏撑破而不是滚动
   return (
-    <ul className="min-h-0 flex-1 overflow-y-auto pb-1">
+    <ul ref={listRef} tabIndex={-1} className="min-h-0 flex-1 overflow-y-auto pb-1">
       {segments.map((segment, index) => {
         const selected = segment.id === selectedId;
         const pending = deletingId === segment.id;
@@ -62,6 +90,10 @@ export default function SegmentList({
             <div className={`flex min-h-10 items-stretch border-l-[3px] ${rowTone}`}>
               <button
                 type="button"
+                ref={(element) => {
+                  if (element) rowRefs.current.set(segment.id, element);
+                  else rowRefs.current.delete(segment.id);
+                }}
                 onClick={() => onSelect(segment.id)}
                 // 选中态不能只靠左侧竖条与底色表达：屏幕阅读器完全读不到颜色
                 aria-current={selected ? 'true' : undefined}
@@ -86,7 +118,10 @@ export default function SegmentList({
               {readOnly ? null : (
                 <button
                   type="button"
-                  aria-label={`删除第 ${index + 1} 段`}
+                  // 文案被 aria-label 覆盖，状态必须自己进 label：
+                  // 否则屏幕阅读器只听到「删除第 N 段」，不知道正在删
+                  aria-label={pending ? `第 ${index + 1} 段删除中` : `删除第 ${index + 1} 段`}
+                  aria-busy={pending || undefined}
                   disabled={busy}
                   onClick={() => onDelete(segment.id)}
                   // 平时 opacity-0，行 hover / 行选中 / 本行删除中才可见：

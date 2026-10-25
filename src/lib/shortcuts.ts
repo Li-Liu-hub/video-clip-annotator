@@ -63,3 +63,11 @@ export const SHORTCUT_HINTS: ReadonlyArray<{
 export function formatShortcutHint(hint: { keys: string; label: string }): string {
   return `${hint.keys} ${hint.label}`;
 }
+
+/**
+ * O 键遇到「太短」时的提示。
+ *
+ * 原来这里是静默 return：入点还在，但用户看到的是「按了 O 什么都没发生」。
+ * 说清两件事就够了 —— 为什么没建、入点没丢。
+ */
+export const TOO_SHORT_HINT = `这一段太短（至少 ${MIN_SEGMENT_MS / 1000} 秒）。入点还在，挪一下播放头再按 O 即可。`;

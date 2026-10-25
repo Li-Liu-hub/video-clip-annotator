@@ -20,6 +20,11 @@ const ARROW_STEP_MS = MS_PER_SECOND;
 type Args = {
   /** 是否允许写入（I / O / Delete）。false 时播放与微调仍然可用。 */
   enabled: boolean;
+  /**
+   * 单字符快捷键（空格 / I / O）是否启用。WCAG 2.1.4 要求这类快捷键可关闭；
+   * 关掉只影响这三个键，Delete / 方向键 / Ctrl+Z 不是字符键，照常可用。
+   */
+  characterShortcutsEnabled: boolean;
   videoRef: RefObject<HTMLVideoElement | null>;
   selectedId: string | null;
   /**
@@ -33,6 +38,8 @@ type Args = {
   onSeek: (ms: number) => void;
   onDeleteSelected: () => void;
   onCreateFromMarks: (range: { startMs: number; endMs: number }) => void;
+  /** O 键的两端太短：不创建，但必须给出口（入点仍在） */
+  onTooShort: () => void;
   onUndo: () => void;
   onRedo: () => void;
   /** 栈空时按下不该抢默认（无事可做时连 preventDefault 都不做） */
@@ -48,12 +55,14 @@ function playheadMs(video: HTMLVideoElement): number {
 
 export function useShortcuts({
   enabled,
+  characterShortcutsEnabled,
   videoRef,
   selectedId,
   durationMs,
   onSeek,
   onDeleteSelected,
   onCreateFromMarks,
+  onTooShort,
   onUndo,
   onRedo,
   canUndo,
@@ -102,6 +111,8 @@ export function useShortcuts({
 
       // 用 code 而非 key 判空格：key 的值是 ' '，写起来易错成 'Space' 而静默失效
       if (event.code === 'Space') {
+        // 单字符快捷键被关闭：连 preventDefault 都不做，空格回到浏览器的默认滚动
+        if (!characterShortcutsEnabled) return;
         // 按住空格会在播放/暂停之间按重复频率抖动 —— 重复事件不是新指令
         if (event.repeat) return;
         // 不拦默认行为，浏览器会把页面滚一屏：按空格想播放，画面却跑了
@@ -153,8 +164,8 @@ export function useShortcuts({
       // 字母用 key 且统一小写：CapsLock 开着时 key 是 'I' / 'O'，不归一化就整组失效
       const key = event.key.toLowerCase();
       if (key === 'i') {
-        // 只读：打点没有落点，也不拦默认行为
-        if (!enabled) return;
+        // 只读 / 快捷键关闭：打点没有落点，也不拦默认行为
+        if (!enabled || !characterShortcutsEnabled) return;
         if (!video) return;
         event.preventDefault();
         const at = playheadMs(video);
@@ -164,14 +175,18 @@ export function useShortcuts({
       }
 
       if (key === 'o') {
-        // 只读：不打点也不创建
-        if (!enabled) return;
+        // 只读 / 快捷键关闭：不打点也不创建
+        if (!enabled || !characterShortcutsEnabled) return;
         const markIn = markRef.current;
         // 没有入点就没有区间：不拿播放头当起点去猜，误创建比没反应更难收拾
         if (markIn === null || !video) return;
         const range = normalizeMarkRange(markIn, playheadMs(video));
-        // 太短：不创建，入点保留 —— 挪一下播放头再按 O 即可，不必重新打点
-        if (!range) return;
+        // 太短：不创建，入点保留 —— 挪一下播放头再按 O 即可，不必重新打点。
+        // 必须给提示：静默 return 的表现是「按了 O 什么都没发生」
+        if (!range) {
+          onTooShort();
+          return;
+        }
         event.preventDefault();
         // 先清入点再提交：往返期间竖线还挂着，用户会以为按 O 没生效
         clearMark();
@@ -183,6 +198,7 @@ export function useShortcuts({
     return () => window.removeEventListener('keydown', onKeyDown);
     }, [
     enabled,
+    characterShortcutsEnabled,
     videoRef,
     selectedId,
     // 这两个必须列进来：现在靠「三个内联回调每渲染换身份」让 effect 每次重跑，
@@ -192,6 +208,7 @@ export function useShortcuts({
     onSeek,
     onDeleteSelected,
     onCreateFromMarks,
+    onTooShort,
     onEscape,
     clearMark,
     // 栈空与否直接决定是否拦默认，冻结在首帧就是「第一次撤销之后再也撤不动」

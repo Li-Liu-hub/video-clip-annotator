@@ -7,7 +7,7 @@
 > **文档状态：33 / 33**
 >
 > 已完成 A1–I3 共 33 个功能点（另加计划外的 E8a，M4 之后的加固 O1–O4，
-> 以及收尾 P1–P3），853 例自动化测试 + 53 项全链路验收（`scripts/e2e-check.mjs`）
+> 以及收尾 P1–P7），860 例自动化测试 + 53 项全链路验收（`scripts/e2e-check.mjs`）
 > + 五组七条不变量检查（`scripts/invariant-check.mjs`）。验收记录见 [`docs/REPORT.md`](../REPORT.md)。
 >
 > 已知未修项见文末「未修的已知项」表 —— 那张表是账本，不是待办清单：
@@ -154,6 +154,10 @@ M4 之后仍挂在「未修」表里的三条。共同点是：都不是功能�
 | P1  | 标签保真（拖动替换继承、撤销回放带 label、API 接受 label） | [37-label-and-guards](37-label-and-guards.md) | E3 E8 | 2h  |
 | P2  | 并发删除守卫自动化（延迟 DELETE，单指针复现）             | 同上                                         | O1c | 0.5h |
 | P3  | 相邻色块选中描边的层级（z-10 / 草案 z-20）              | 同上                                         | H5  | 0.5h |
+| P4  | 单字符快捷键可关闭（WCAG 2.1.4，偏好存 localStorage）    | [39-a11y-focus-shortcuts](39-a11y-focus-shortcuts.md) | A3  | 1h  |
+| P5  | 删除中补 `aria-busy` 与状态 label                  | 同上                                         | G4  | 0.2h |
+| P6  | 删除后的焦点策略（下一段 → 上一段 → 空态）               | 同上                                         | G5  | 1h  |
+| P7  | O 键太短给提示（入点保留）                           | 同上                                         | M6  | 0.3h |
 
 ---
 
@@ -172,11 +176,11 @@ E3–E7 五轮审查中，Reviewer 判为非阻断但明确记录的问题。
 | G1 | E6 | ~~被守卫吞掉的第二次提交是静默的~~ **E7 已修**：三处守卫各给提示（删除在途 / 提交在途 / 被替换段已删）。`cursor-progress` 的视觉反馈仍可加 | 已修 |
 | O5 | E6 | ~~拖拽中删掉被拖段，松手仍 404~~ **E7 已修**。证据：`segmentsRef` 由 `applySegments` 写透（不是 effect 镜像，无窗口），提交前 `segmentsRef.current.some(id)` 判存在性，不在则提示「这一段已被删除」并放弃 | 已修 |
 | H1 | E8 | **撤销的方向（存操作前 vs 操作后）不在 `npm test` 里**。栈操作是纯函数、测得很扎实，但「调用点传的到底是 before 还是 after」在 Workbench 里，Reviewer 实测把它改成 `record(segmentsRef.current)` 后 **510 例全绿**。**已用 Playwright 验证**：拖拽创建 + Ctrl+Z、删除 + Ctrl+Z 都回到原区间（脚本 `.workbuddy/browser-check.py`，不进仓库） | 已验（脚本）；根治要接组件测试
-| M6 | E7 | O 键遇到「太短」时静默不创建，入点保留（挪一下播放头再按 O 即可，不必重新打点）。已从文档契约里删掉「调用方据此提示太短」那句错误承诺 | 有余力时给一行提示 |
-| A3 | E7 | 单字符快捷键（I / O / Space）在 window 上常驻，没有开关，不满足 WCAG 2.1.4（字符快捷键应可关闭或可重映射）。当前只在工作台页生效、且输入框内全部失效，影响有限 | 做设置面板时 |
+| M6 | E7 | ~~O 键遇到「太短」时静默不创建，入点保留~~ **P7 已修**：状态行提示「太短（至少 0.1 秒），入点还在」，写成功 / 删除 / 撤销 / Esc 清掉；文案 `TOO_SHORT_HINT`，下限取 `MIN_SEGMENT_MS` | 已修 |
+| A3 | E7 | ~~单字符快捷键（I / O / Space）在 window 上常驻，没有开关~~ **P4 已修**：页脚 checkbox 可关闭，偏好存 localStorage（只停字符键，Delete / 方向键 / Ctrl+Z 不受影响）；浏览器验证关闭后空格与 I/O 均无效、刷新后仍关闭 | 已修 |
 | K13 | E7 | ~~长按 Delete 会「删一段 → 选中迁移 → 接着删」连锁清空~~ **已修**：`event.repeat` 时直接 return，只认第一次按下 | 已修 |
-| G4 | E5 | 删除中缺 `aria-busy`（`disabled` + 文案已可读，收益小） | 与 G5 一起 |
-| G5 | E5 | 删除后焦点落回 `body`，无焦点管理 | 独立议题，需要设计 |
+| G4 | E5 | ~~删除中缺 `aria-busy`~~ **P5 已修**：删除中加 `aria-busy`，`aria-label` 改成「第 N 段删除中」（label 会覆盖按钮内容，只加 aria-busy 听不到状态） | 已修 |
+| G5 | E5 | ~~删除后焦点落回 `body`，无焦点管理~~ **P6 已修**：下一段 → 上一段 → 空态文本（`tabIndex=-1`），竞态找不到目标时退回列表容器；撤销不触发（避免连续 Ctrl+Z 焦点乱跳） | 已修 |
 | H5 | E5 | ~~相邻色块紧贴时选中描边 `ring-2` 会被后绘制的兄弟盖掉半圈~~ **P3 已修**：选中/冲突块 `z-10`、草案 `z-20`；浏览器断言选中块 `z-index=10`、兄弟 `auto` | 已修 |
 | — | E5 | ~~E5 的 GET 复用 `requireWritableTask`，submitted 任务返回 409 而非空数组~~ **E8a 已修**：`listSegments` 改用 `requireReadableTask`，只读回顾可读，写入口仍由 `upsertSegment` / `deleteSegment` 的 `requireWritableTask` 守住 | 已修 |
 | — | O3 浏览器验收 | ~~**撤销删除 / 拖动替换后 `label` 丢失**：历史栈只存区间，`upsertSegment` 替换时固定 `label: null`。~~ **P1 已修**：`HistoryInterval` 带 label（匹配仍只比两端）；替换未传 label 继承旧值、显式 null 清空；撤销载荷 `label` 必填（漏传编译失败）。变异：服务丢 label → 7 例红，快照丢 label → 2 例红，载荷丢 label → 1 例红；浏览器实测拖动与撤销后「有效操作」都在 | 已修 |
