@@ -15,6 +15,7 @@ const LABELS: Record<AuditAction, string> = {
   'auth.login': '登录',
   'auth.login_failed': '登录失败',
   'auth.logout': '登出',
+  'auth.password_changed': '修改密码',
 };
 
 function isAuditAction(value: string): value is AuditAction {

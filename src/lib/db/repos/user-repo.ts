@@ -29,6 +29,11 @@ export function findById(db: DB, id: string): UserRow | null {
   return (row as UserRow | undefined) ?? null;
 }
 
+/** 只改哈希一列。改密是认证动作，不碰角色与租户归属。 */
+export function updatePasswordHash(db: DB, id: string, passwordHash: string): void {
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(passwordHash, id);
+}
+
 export type UserOptionRow = {
   id: string;
   display_name: string;

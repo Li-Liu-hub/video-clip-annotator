@@ -42,7 +42,9 @@ afterEach(() => {
 });
 
 describe('I2 不变量检查器脚本', () => {
-  it('干净库上退出码为 0 并报告 0 项违反', () => {
+  // 三条都起子进程，默认 5 秒上限在「全量并行 + 各自再 spawn node」时会顶破。
+  // 放宽的是等待时间，断言一字未改。
+  it('干净库上退出码为 0 并报告 0 项违反', { timeout: 20_000 }, () => {
     const file = tempDbPath('clean');
     createDb(file).close();
 
@@ -50,7 +52,7 @@ describe('I2 不变量检查器脚本', () => {
     expect([result.status, result.stdout.includes('0 项违反')]).toEqual([0, true]);
   });
 
-  it('脏库上退出码为 1 并点名规则', () => {
+  it('脏库上退出码为 1 并点名规则', { timeout: 20_000 }, () => {
     const file = tempDbPath('dirty');
     const db = createDb(file);
     db.prepare('INSERT INTO tenants (id, name, timezone, created_at) VALUES (?, ?, ?, ?)').run(
@@ -80,7 +82,8 @@ describe('I2 不变量检查器脚本', () => {
     expect([result.status, result.stdout.includes('[status-claimed-pair]')]).toEqual([1, true]);
   });
 
-  it('--temp 在一次性库上跑完整链路后退出码为 0', () => {
+  // 这一条还要在一次性库里跑完整业务链路（含口令哈希），耗时最长
+  it('--temp 在一次性库上跑完整链路后退出码为 0', { timeout: 20_000 }, () => {
     const result = run(['--temp'], tempDbPath('unused'));
 
     expect([result.status, result.stdout.includes('0 项违反')]).toEqual([0, true]);

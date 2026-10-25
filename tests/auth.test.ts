@@ -46,9 +46,9 @@ function seed(): DB {
 }
 
 /** 把抛出物压成可断言的字面量；未抛出返回 null，免得每个用例各写一遍 try/catch。 */
-function failure(fn: () => unknown): { name: string; message: string; status: number } | null {
+async function failure(fn: () => unknown): Promise<{ name: string; message: string; status: number } | null> {
   try {
-    fn();
+    await fn();
     return null;
   } catch (err) {
     if (err instanceof AppError) return { name: err.name, message: err.message, status: err.status };
@@ -75,10 +75,10 @@ describe('hashPassword', () => {
     expect(hashPassword(ANNOTATOR_PASSWORD)).not.toBe(hashPassword(ANNOTATOR_PASSWORD));
   });
 
-  it('两次哈希的结果都能通过校验', () => {
+  it('两次哈希的结果都能通过校验', async () => {
     expect([
-      verifyPassword(ANNOTATOR_PASSWORD, hashPassword(ANNOTATOR_PASSWORD)),
-      verifyPassword(ANNOTATOR_PASSWORD, hashPassword(ANNOTATOR_PASSWORD)),
+      await verifyPassword(ANNOTATOR_PASSWORD, hashPassword(ANNOTATOR_PASSWORD)),
+      await verifyPassword(ANNOTATOR_PASSWORD, hashPassword(ANNOTATOR_PASSWORD)),
     ]).toEqual([true, true]);
   });
 
@@ -92,12 +92,12 @@ describe('hashPassword', () => {
 });
 
 describe('verifyPassword', () => {
-  it('正确密码返回 true', () => {
-    expect(verifyPassword(ANNOTATOR_PASSWORD, hashPassword(ANNOTATOR_PASSWORD))).toBe(true);
+  it('正确密码返回 true', async () => {
+    expect(await verifyPassword(ANNOTATOR_PASSWORD, hashPassword(ANNOTATOR_PASSWORD))).toBe(true);
   });
 
-  it('错误密码返回 false', () => {
-    expect(verifyPassword('wrong-password', hashPassword(ANNOTATOR_PASSWORD))).toBe(false);
+  it('错误密码返回 false', async () => {
+    expect(await verifyPassword('wrong-password', hashPassword(ANNOTATOR_PASSWORD))).toBe(false);
   });
 
   const malformed = [
@@ -114,76 +114,76 @@ describe('verifyPassword', () => {
 
   for (const stored of malformed) {
     // 若实现改成抛错，这条会直接红 —— 同时覆盖「返回 false」与「不抛错」两个要求
-    it(`格式非法（${stored.slice(0, 14) || '空串'}）返回 false 而不抛错`, () => {
-      expect(verifyPassword(ANNOTATOR_PASSWORD, stored)).toBe(false);
+    it(`格式非法（${stored.slice(0, 14) || '空串'}）返回 false 而不抛错`, async () => {
+      expect(await verifyPassword(ANNOTATOR_PASSWORD, stored)).toBe(false);
     });
   }
 });
 
 describe('authenticate', () => {
-  it('标注员的 role 与库中一致', () => {
-    expect(authenticate(db, 'alice', ANNOTATOR_PASSWORD).role).toBe('annotator');
+  it('标注员的 role 与库中一致', async () => {
+    expect((await authenticate(db, 'alice', ANNOTATOR_PASSWORD)).role).toBe('annotator');
   });
 
-  it('标注员的 tenantId 与库中一致', () => {
-    expect(authenticate(db, 'alice', ANNOTATOR_PASSWORD).tenantId).toBe(TENANT_ID);
+  it('标注员的 tenantId 与库中一致', async () => {
+    expect((await authenticate(db, 'alice', ANNOTATOR_PASSWORD)).tenantId).toBe(TENANT_ID);
   });
 
-  it('标注员的 tenantName 取自 tenants.name', () => {
-    expect(authenticate(db, 'alice', ANNOTATOR_PASSWORD).tenantName).toBe(TENANT_NAME);
+  it('标注员的 tenantName 取自 tenants.name', async () => {
+    expect((await authenticate(db, 'alice', ANNOTATOR_PASSWORD)).tenantName).toBe(TENANT_NAME);
   });
 
-  it('标注员的 timezone 取自 tenants.timezone', () => {
-    expect(authenticate(db, 'alice', ANNOTATOR_PASSWORD).timezone).toBe(TENANT_TIMEZONE);
+  it('标注员的 timezone 取自 tenants.timezone', async () => {
+    expect((await authenticate(db, 'alice', ANNOTATOR_PASSWORD)).timezone).toBe(TENANT_TIMEZONE);
   });
 
-  it('displayName 取自 users.display_name', () => {
-    expect(authenticate(db, 'alice', ANNOTATOR_PASSWORD).displayName).toBe('林小雨');
+  it('displayName 取自 users.display_name', async () => {
+    expect((await authenticate(db, 'alice', ANNOTATOR_PASSWORD)).displayName).toBe('林小雨');
   });
 
-  it('正确凭据返回的 id 是用户的库内 id', () => {
-    expect(authenticate(db, 'alice', ANNOTATOR_PASSWORD).id).toBe(ANNOTATOR_ID);
+  it('正确凭据返回的 id 是用户的库内 id', async () => {
+    expect((await authenticate(db, 'alice', ANNOTATOR_PASSWORD)).id).toBe(ANNOTATOR_ID);
   });
 
-  it('密码错误抛 UnauthorizedError', () => {
-    expect(failure(() => authenticate(db, 'alice', 'wrong-password'))?.name).toBe('UnauthorizedError');
+  it('密码错误抛 UnauthorizedError', async () => {
+    expect((await failure(() => authenticate(db, 'alice', 'wrong-password')))?.name).toBe('UnauthorizedError');
   });
 
-  it('用户名不存在同样抛 UnauthorizedError', () => {
-    expect(failure(() => authenticate(db, 'nobody', ANNOTATOR_PASSWORD))?.name).toBe('UnauthorizedError');
+  it('用户名不存在同样抛 UnauthorizedError', async () => {
+    expect((await failure(() => authenticate(db, 'nobody', ANNOTATOR_PASSWORD)))?.name).toBe('UnauthorizedError');
   });
 
-  it('密码错误与用户名不存在抛同一个类', () => {
-    const wrongPassword = failure(() => authenticate(db, 'alice', 'wrong-password'));
-    const unknownUser = failure(() => authenticate(db, 'nobody', ANNOTATOR_PASSWORD));
+  it('密码错误与用户名不存在抛同一个类', async () => {
+    const wrongPassword = await failure(() => authenticate(db, 'alice', 'wrong-password'));
+    const unknownUser = await failure(() => authenticate(db, 'nobody', ANNOTATOR_PASSWORD));
     expect([wrongPassword?.name, unknownUser?.name]).toEqual(['UnauthorizedError', 'UnauthorizedError']);
   });
 
-  it('密码错误与用户名不存在是同一句 message', () => {
-    const wrongPassword = failure(() => authenticate(db, 'alice', 'wrong-password'));
-    const unknownUser = failure(() => authenticate(db, 'nobody', ANNOTATOR_PASSWORD));
+  it('密码错误与用户名不存在是同一句 message', async () => {
+    const wrongPassword = await failure(() => authenticate(db, 'alice', 'wrong-password'));
+    const unknownUser = await failure(() => authenticate(db, 'nobody', ANNOTATOR_PASSWORD));
     expect(unknownUser?.message).toBe(wrongPassword?.message);
   });
 
-  it('登录失败的状态码是 401', () => {
-    expect(failure(() => authenticate(db, 'alice', 'wrong-password'))?.status).toBe(401);
+  it('登录失败的状态码是 401', async () => {
+    expect((await failure(() => authenticate(db, 'alice', 'wrong-password')))?.status).toBe(401);
   });
 
-  it('管理员登录后 tenantId 为 null', () => {
-    expect(authenticate(db, 'admin', ADMIN_PASSWORD).tenantId).toBeNull();
+  it('管理员登录后 tenantId 为 null', async () => {
+    expect((await authenticate(db, 'admin', ADMIN_PASSWORD)).tenantId).toBeNull();
   });
 
-  it('管理员登录后 tenantName 为 null', () => {
-    expect(authenticate(db, 'admin', ADMIN_PASSWORD).tenantName).toBeNull();
+  it('管理员登录后 tenantName 为 null', async () => {
+    expect((await authenticate(db, 'admin', ADMIN_PASSWORD)).tenantName).toBeNull();
   });
 
-  it('管理员登录后 timezone 是默认值', () => {
-    expect(authenticate(db, 'admin', ADMIN_PASSWORD).timezone).toBe(DEFAULT_TIMEZONE);
+  it('管理员登录后 timezone 是默认值', async () => {
+    expect((await authenticate(db, 'admin', ADMIN_PASSWORD)).timezone).toBe(DEFAULT_TIMEZONE);
   });
 
-  it('登录时顺带清理掉过期会话', () => {
+  it('登录时顺带清理掉过期会话', async () => {
     insertSession(db, 'f'.repeat(48), ANNOTATOR_ID, 1, 0);
-    authenticate(db, 'alice', ANNOTATOR_PASSWORD);
+    await authenticate(db, 'alice', ANNOTATOR_PASSWORD);
     expect(sessionCount()).toBe(0);
   });
 });
@@ -254,8 +254,8 @@ describe('destroySession', () => {
     expect(resolveSession(db, id)).toBeNull();
   });
 
-  it('session 不存在时静默成功', () => {
-    expect(failure(() => destroySession(db, 'a'.repeat(48)))).toBeNull();
+  it('session 不存在时静默成功', async () => {
+    expect(await failure(() => destroySession(db, 'a'.repeat(48)))).toBeNull();
   });
 });
 

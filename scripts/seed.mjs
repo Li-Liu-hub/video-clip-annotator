@@ -1,5 +1,7 @@
 /**
- * 种子数据：4 账号 / 3 租户 / 17 任务 / 历史账本与审计。
+ * 种子数据。两种形态：
+ *   默认        只建一个管理员，口令随机生成并交由调用方打印一次（不落盘、不进 README）
+ *   demoLogin   4 账号 / 3 租户 / 17 任务 / 历史账本与审计，口令是文档里的固定值
  *
  * 单独成模块而不是留在 setup.mjs 里，是因为它有两个调用方：
  *   - scripts/setup.mjs：建库后灌一次（npm run dev 的 predev）
@@ -36,8 +38,22 @@ function hashPassword(password) {
  *
  * videoSize 由调用方给：task 里的 estimated_ms 取自视频时长，
  * 但 size_bytes 只是展示字段，没有视频文件（--temp 场景）时传 1 即可。
+ *
+ * demoLogin 默认 false：交付库里不该有口令已知的账号。演示/验收需要固定口令时显式打开。
+ * 返回值里的 adminPassword 只在默认模式下有值，调用方必须打印一次就丢掉 ——
+ * 写进文件或日志等于把「随机口令」又变回默认口令。
  */
-export function seedDatabase(db, { now = Date.now(), videoSize = 1 } = {}) {
+export function seedDatabase(db, { now = Date.now(), videoSize = 1, demoLogin = false } = {}) {
+  const demo = demoLogin === true;
+  // 12 字符、base64url，手抄不容易错；9 字节熵在口令 + 限流下够用。
+  //
+  // 默认模式建的是**全量数据**，只是口令随机 —— 安全要防的是「口令已知」，
+  // 不是「有数据」。早先的写法在默认模式下连租户与任务都不建，
+  // 结果是 npm run dev 登录后什么都看不到，等于把安全性做成了不可用。
+  const demoPassword = 'demo123';
+  const sharedPassword = demo ? demoPassword : randomBytes(9).toString('base64url');
+  const adminPassword = sharedPassword;
+
   const tenants = [
     { id: nid(), name: '林小雨的工作空间' },
     { id: nid(), name: '陈默的工作空间' },
@@ -45,11 +61,21 @@ export function seedDatabase(db, { now = Date.now(), videoSize = 1 } = {}) {
   ];
 
   const adminId = nid();
+  const admin = {
+    id: adminId,
+    tenantId: null,
+    username: 'admin',
+    displayName: '平台管理员',
+    pwd: adminPassword,
+    role: 'admin',
+  };
+  // 四个账号始终都建。默认模式下它们共用同一个随机口令（打印一次），
+  // 演示模式下用文档里的固定口令。
   const users = [
-    { id: adminId, tenantId: null, username: 'admin', displayName: '平台管理员', pwd: 'admin123', role: 'admin' },
-    { id: nid(), tenantId: tenants[0].id, username: 'alice', displayName: '林小雨', pwd: 'demo123', role: 'annotator' },
-    { id: nid(), tenantId: tenants[1].id, username: 'bob', displayName: '陈默', pwd: 'demo123', role: 'annotator' },
-    { id: nid(), tenantId: tenants[2].id, username: 'carol', displayName: '周予安', pwd: 'demo123', role: 'annotator' },
+    admin,
+    { id: nid(), tenantId: tenants[0].id, username: 'alice', displayName: '林小雨', pwd: sharedPassword, role: 'annotator' },
+    { id: nid(), tenantId: tenants[1].id, username: 'bob', displayName: '陈默', pwd: sharedPassword, role: 'annotator' },
+    { id: nid(), tenantId: tenants[2].id, username: 'carol', displayName: '周予安', pwd: sharedPassword, role: 'annotator' },
   ];
 
   const videoId = nid();
@@ -116,6 +142,8 @@ export function seedDatabase(db, { now = Date.now(), videoSize = 1 } = {}) {
       insertUser.run(u.id, u.tenantId, u.username, u.displayName, hashPassword(u.pwd), u.role, now);
     }
 
+    // 视频始终插入：任务要引用它。早先只在演示模式插，默认模式下任务的 video_id
+    // 外键悬空、整库建不起来 —— 而默认模式本来就是全量数据
     insertVideo.run(videoId, 'aloha-coffee.mp4', 'aloha-coffee.mp4', videoSize, videoDurationMs, 'video/mp4', adminId, now);
 
     for (const spec of taskSpecs) {
@@ -187,7 +215,7 @@ export function seedDatabase(db, { now = Date.now(), videoSize = 1 } = {}) {
 
   seed();
 
-  return {
+  const counts = {
     租户: db.prepare('SELECT COUNT(*) n FROM tenants').get().n,
     用户: db.prepare('SELECT COUNT(*) n FROM users').get().n,
     视频: db.prepare('SELECT COUNT(*) n FROM videos').get().n,
@@ -196,4 +224,8 @@ export function seedDatabase(db, { now = Date.now(), videoSize = 1 } = {}) {
     账本条目: db.prepare('SELECT COUNT(*) n FROM ledger_entries').get().n,
     审计记录: db.prepare('SELECT COUNT(*) n FROM audit_logs').get().n,
   };
+
+  // 演示模式下口令是文档里的公开值，没有「一次性秘密」可发
+  // 随机模式下把口令交给调用方打印一次；演示模式下没有「需要记住的口令」
+  return { counts, sharedPassword: demo ? null : sharedPassword };
 }

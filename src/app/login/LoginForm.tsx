@@ -7,6 +7,15 @@ import { useRouter } from 'next/navigation';
 import { homePathOf } from '@/lib/routes';
 
 /**
+ * 演示账号只在构建期显式开启时存在：`NEXT_PUBLIC_DEMO_LOGIN=1 npm run build`。
+ *
+ * NEXT_PUBLIC_* 在构建期被内联成字面量，所以默认构建里这整个数组（含四个明文口令）
+ * 必须被判成死代码摇掉。这是实测项，不是推断项：默认构建后
+ * `grep -rl "admin123" .next/static` 必须无输出。
+ */
+const SHOW_DEMO = process.env.NEXT_PUBLIC_DEMO_LOGIN === '1';
+
+/**
  * name 必须与 users.display_name 一致，note 只描述角色与可见范围。
  * 不写租户名：租户名由 setup.mjs 生成，页面写死就会展示与库不符的事实。
  */
@@ -136,35 +145,37 @@ export default function LoginForm() {
         </button>
       </form>
 
-      <div className="mt-8">
-        <div className="mb-2.5 flex items-center gap-2">
-          <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-ink-faint">演示账号</span>
-          <span className="h-px flex-1 bg-line-soft" />
+      {SHOW_DEMO ? (
+        <div className="mt-8">
+          <div className="mb-2.5 flex items-center gap-2">
+            <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-ink-faint">演示账号</span>
+            <span className="h-px flex-1 bg-line-soft" />
+          </div>
+          <p className="mb-2.5 text-[11.5px] leading-relaxed text-ink-faint">点击即可直接进入，无需输入密码</p>
+          <div className="grid grid-cols-2 gap-2">
+            {DEMO_ACCOUNTS.map((acc) => (
+              <button
+                key={acc.username}
+                // type 不能省：默认 submit，光标停在演示按钮上按回车会提交空表单
+                type="button"
+                disabled={blocked}
+                onClick={() => {
+                  setUsername(acc.username);
+                  setPassword(acc.password);
+                  void signIn(acc.username, acc.password);
+                }}
+                className="rounded-lg border border-line bg-panel px-3 py-2.5 text-left transition-colors hover:border-accent-2/60 hover:bg-panel-2 disabled:opacity-50"
+              >
+                <span className="flex items-baseline justify-between gap-2">
+                  <span className="truncate text-[13px] font-medium text-ink">{acc.name}</span>
+                  <span className="tnum shrink-0 text-[10.5px] text-ink-faint">{acc.username}</span>
+                </span>
+                <span className="mt-0.5 block truncate text-[11px] text-ink-faint">{acc.note}</span>
+              </button>
+            ))}
+          </div>
         </div>
-        <p className="mb-2.5 text-[11.5px] leading-relaxed text-ink-faint">点击即可直接进入，无需输入密码</p>
-        <div className="grid grid-cols-2 gap-2">
-          {DEMO_ACCOUNTS.map((acc) => (
-            <button
-              key={acc.username}
-              // type 不能省：默认 submit，光标停在演示按钮上按回车会提交空表单
-              type="button"
-              disabled={blocked}
-              onClick={() => {
-                setUsername(acc.username);
-                setPassword(acc.password);
-                void signIn(acc.username, acc.password);
-              }}
-              className="rounded-lg border border-line bg-panel px-3 py-2.5 text-left transition-colors hover:border-accent-2/60 hover:bg-panel-2 disabled:opacity-50"
-            >
-              <span className="flex items-baseline justify-between gap-2">
-                <span className="truncate text-[13px] font-medium text-ink">{acc.name}</span>
-                <span className="tnum shrink-0 text-[10.5px] text-ink-faint">{acc.username}</span>
-              </span>
-              <span className="mt-0.5 block truncate text-[11px] text-ink-faint">{acc.note}</span>
-            </button>
-          ))}
-        </div>
-      </div>
+      ) : null}
     </div>
   );
 }

@@ -13,6 +13,7 @@ export type ErrorCode =
   | 'VALIDATION'
   | 'OVERLAP'
   | 'STATE_CONFLICT'
+  | 'RATE_LIMITED'
   | 'PAYLOAD_TOO_LARGE'
   | 'UNSUPPORTED_MEDIA'
   | 'INTERNAL';
@@ -75,6 +76,18 @@ export class PayloadTooLargeError extends AppError {
 export class StateConflictError extends AppError {
   constructor(message = '当前状态不允许该操作') {
     super('STATE_CONFLICT', 409, message);
+  }
+}
+
+/**
+ * 429：同一 IP + 用户名在窗口内失败太多次。
+ *
+ * 文案不说明「还剩多久」或「你已经被锁」的细节 —— 提示越具体，猜中的口径越窄；
+ * 真正需要知道何时能重试的人，等 60 秒就好。
+ */
+export class RateLimitedError extends AppError {
+  constructor(message = '尝试次数过多，请稍后再试') {
+    super('RATE_LIMITED', 429, message);
   }
 }
 

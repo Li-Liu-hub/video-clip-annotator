@@ -73,9 +73,9 @@ function detailOf(action: string): Record<string, unknown> | null {
 }
 
 /** 吞掉预期内的抛出，让「失败之后留下了什么」的用例只断言留下的东西。 */
-function attempt(fn: () => unknown): unknown {
+async function attempt(fn: () => unknown): Promise<unknown> {
   try {
-    fn();
+    await fn();
     return null;
   } catch (err) {
     return err;
@@ -91,21 +91,21 @@ afterEach(() => {
 });
 
 describe('登录成功的审计', () => {
-  it('写入一条 auth.login', () => {
-    loginWithFreshSession(db, 'alice', ALICE_PASSWORD);
+  it('写入一条 auth.login', async () => {
+    await loginWithFreshSession(db, 'alice', ALICE_PASSWORD);
     expect(auditsOf(AUDIT_ACTIONS.authLogin)).toHaveLength(1);
   });
 
-  it('actorId 是刚登录的用户', () => {
-    loginWithFreshSession(db, 'alice', ALICE_PASSWORD);
+  it('actorId 是刚登录的用户', async () => {
+    await loginWithFreshSession(db, 'alice', ALICE_PASSWORD);
     expect(auditsOf(AUDIT_ACTIONS.authLogin)[0]?.actor_id).toBe(ALICE_ID);
   });
 
-  it('审计的任何一列都不含本次签发的会话凭据', () => {
+  it('审计的任何一列都不含本次签发的会话凭据', async () => {
     // sessions.id 就是这个 schema 里的 cookie 值。写进审计等于把一份有效凭据
     // 存进一张会被导出、会被贴进工单的表，而审计页的详情正是原样渲染 detail 的。
     // 这条反向断言比注释可靠：谁再往 detail 里塞一次，它立刻红。
-    const { sessionId } = loginWithFreshSession(db, 'alice', ALICE_PASSWORD);
+    const { sessionId } = await loginWithFreshSession(db, 'alice', ALICE_PASSWORD);
     const rows = db
       .prepare('SELECT * FROM audit_logs')
       .all() as Record<string, unknown>[];
@@ -115,38 +115,38 @@ describe('登录成功的审计', () => {
 });
 
 describe('登录失败的审计', () => {
-  it('密码错写入一条 auth.login_failed', () => {
-    attempt(() => authenticate(db, 'alice', 'wrong-password'));
+  it('密码错写入一条 auth.login_failed', async () => {
+    await attempt(() => authenticate(db, 'alice', 'wrong-password'));
     expect(auditsOf(AUDIT_ACTIONS.authLoginFailed)).toHaveLength(1);
   });
 
-  it('密码错时 actorId 是该用户', () => {
-    attempt(() => authenticate(db, 'alice', 'wrong-password'));
+  it('密码错时 actorId 是该用户', async () => {
+    await attempt(() => authenticate(db, 'alice', 'wrong-password'));
     expect(auditsOf(AUDIT_ACTIONS.authLoginFailed)[0]?.actor_id).toBe(ALICE_ID);
   });
 
-  it('密码错的 reason 是 bad_password', () => {
-    attempt(() => authenticate(db, 'alice', 'wrong-password'));
+  it('密码错的 reason 是 bad_password', async () => {
+    await attempt(() => authenticate(db, 'alice', 'wrong-password'));
     expect(detailOf(AUDIT_ACTIONS.authLoginFailed)?.reason).toBe('bad_password');
   });
 
-  it('用户不存在时 actorId 为 NULL', () => {
-    attempt(() => authenticate(db, 'nobody', ALICE_PASSWORD));
+  it('用户不存在时 actorId 为 NULL', async () => {
+    await attempt(() => authenticate(db, 'nobody', ALICE_PASSWORD));
     expect(auditsOf(AUDIT_ACTIONS.authLoginFailed)[0]?.actor_id).toBeNull();
   });
 
-  it('用户不存在时 detail.username 有值，是试的那个名字', () => {
-    attempt(() => authenticate(db, 'nobody', ALICE_PASSWORD));
+  it('用户不存在时 detail.username 有值，是试的那个名字', async () => {
+    await attempt(() => authenticate(db, 'nobody', ALICE_PASSWORD));
     expect(detailOf(AUDIT_ACTIONS.authLoginFailed)?.username).toBe('nobody');
   });
 
-  it('账号不可用时 reason 是 inactive', () => {
-    attempt(() => authenticate(db, 'ghost', ALICE_PASSWORD));
+  it('账号不可用时 reason 是 inactive', async () => {
+    await attempt(() => authenticate(db, 'ghost', ALICE_PASSWORD));
     expect(detailOf(AUDIT_ACTIONS.authLoginFailed)?.reason).toBe('inactive');
   });
 
-  it('失败记录的 detail 只有 username 与 reason，不含密码或哈希', () => {
-    attempt(() => authenticate(db, 'alice', 'wrong-password'));
+  it('失败记录的 detail 只有 username 与 reason，不含密码或哈希', async () => {
+    await attempt(() => authenticate(db, 'alice', 'wrong-password'));
     expect(detailOf(AUDIT_ACTIONS.authLoginFailed)).toEqual({
       username: 'alice',
       reason: 'bad_password',
@@ -157,10 +157,10 @@ describe('登录失败的审计', () => {
 describe('不泄漏失败原因', () => {
   const reasons = ['bad_password', 'no_such_user', 'inactive'] as const;
 
-  it('三种原因抛的是同一种错误、同一句文案', () => {
-    const wrongPassword = attempt(() => authenticate(db, 'alice', 'wrong-password'));
-    const noSuchUser = attempt(() => authenticate(db, 'nobody', ALICE_PASSWORD));
-    const inactive = attempt(() => authenticate(db, 'ghost', ALICE_PASSWORD));
+  it('三种原因抛的是同一种错误、同一句文案', async () => {
+    const wrongPassword = await attempt(() => authenticate(db, 'alice', 'wrong-password'));
+    const noSuchUser = await attempt(() => authenticate(db, 'nobody', ALICE_PASSWORD));
+    const inactive = await attempt(() => authenticate(db, 'ghost', ALICE_PASSWORD));
 
     const shape = (err: unknown) =>
       err instanceof UnauthorizedError ? [err.name, err.status, err.message] : null;
@@ -173,10 +173,10 @@ describe('不泄漏失败原因', () => {
     ]);
   });
 
-  it('三种原因在审计里是分开的', () => {
-    attempt(() => authenticate(db, 'alice', 'wrong-password'));
-    attempt(() => authenticate(db, 'nobody', ALICE_PASSWORD));
-    attempt(() => authenticate(db, 'ghost', ALICE_PASSWORD));
+  it('三种原因在审计里是分开的', async () => {
+    await attempt(() => authenticate(db, 'alice', 'wrong-password'));
+    await attempt(() => authenticate(db, 'nobody', ALICE_PASSWORD));
+    await attempt(() => authenticate(db, 'ghost', ALICE_PASSWORD));
 
     const recorded = auditsOf(AUDIT_ACTIONS.authLoginFailed).map(
       (row) => (JSON.parse(row.detail ?? '{}') as { reason?: string }).reason,
@@ -186,8 +186,8 @@ describe('不泄漏失败原因', () => {
 });
 
 describe('抛错与审计的先后', () => {
-  it('抛错之前审计已经落库（异常没把它一起带走）', () => {
-    attempt(() => authenticate(db, 'nobody', ALICE_PASSWORD));
+  it('抛错之前审计已经落库（异常没把它一起带走）', async () => {
+    await attempt(() => authenticate(db, 'nobody', ALICE_PASSWORD));
     expect(auditsOf(AUDIT_ACTIONS.authLoginFailed)).toHaveLength(1);
   });
 });
@@ -198,17 +198,17 @@ describe('旁路模式', () => {
     db.exec('DROP TABLE audit_logs');
   }
 
-  it('审计表不可写时登录仍然成功', () => {
+  it('审计表不可写时登录仍然成功', async () => {
     dropAuditTable();
     const log = vi.spyOn(console, 'error').mockImplementation(() => {});
-    expect(() => loginWithFreshSession(db, 'alice', ALICE_PASSWORD)).not.toThrow();
+    await expect(loginWithFreshSession(db, 'alice', ALICE_PASSWORD)).resolves.toBeDefined();
     log.mockRestore();
   });
 
-  it('审计表不可写时的失败登录抛的仍是凭据错误，而不是审计错误', () => {
+  it('审计表不可写时的失败登录抛的仍是凭据错误，而不是审计错误', async () => {
     dropAuditTable();
     const log = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const err = attempt(() => authenticate(db, 'nobody', ALICE_PASSWORD));
+    const err = await attempt(() => authenticate(db, 'nobody', ALICE_PASSWORD));
     log.mockRestore();
     expect(err instanceof UnauthorizedError).toBe(true);
   });

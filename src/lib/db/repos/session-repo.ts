@@ -58,6 +58,17 @@ export function deleteSession(db: DB, sessionId: string): void {
   db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionId);
 }
 
+/**
+ * 删掉某用户除 keepSessionId 外的全部会话，返回删除行数。
+ *
+ * 改密后旧口令签发的会话仍在别的浏览器里活着，等于改密没生效；
+ * 但把当前这条一起删掉，用户改完密码就被自己踢出登录页。
+ */
+export function deleteOtherSessionsOfUser(db: DB, userId: string, keepSessionId: string): number {
+  return db.prepare('DELETE FROM sessions WHERE user_id = ? AND id <> ?').run(userId, keepSessionId)
+    .changes;
+}
+
 export function deleteExpired(db: DB, nowMs: number): number {
   // 与查询侧「expires_at > now 才算有效」严格互补，恰好到期的行算过期
   return db.prepare('DELETE FROM sessions WHERE expires_at <= ?').run(nowMs).changes;

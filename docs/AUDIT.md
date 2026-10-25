@@ -22,7 +22,13 @@
 
 ---
 
-## 1 严重：默认口令在客户端 bundle 里，且没有改密入口
+## 1 严重：默认口令在客户端 bundle 里，且没有改密入口 —— **已修（O1）**
+
+> 修法见 `docs/steps/34-auth-hardening.md`。默认构建的 `.next/static` 里
+> `admin123` / `demo123` / `DEMO_ACCOUNTS` / `林小雨` 四个 needle 全部干净；
+> `NEXT_PUBLIC_DEMO_LOGIN=1` 构建后能命中（正向对照）。
+> 默认 seed 改成「全量数据 + 随机口令（打印一次）」，`admin123` 登录必然 401。
+> 已补 `POST /api/auth/password`。
 
 **位置**：`src/app/login/LoginForm.tsx:13`、`scripts/seed.mjs:49`、`README.md:26`
 
@@ -54,7 +60,12 @@ $ grep -rl "admin123" .next/static
 
 ---
 
-## 2 中：登录接口零限流，且 `scryptSync` 阻塞事件循环
+## 2 中：登录接口零限流，且 `scryptSync` 阻塞事件循环 —— **已修（O1）**
+
+> `scryptSync` → `promisify(scrypt)`，`verifyPassword` / `authenticate` 全链路 async。
+> 漏 `await` 会让校验恒真（Promise 永真），已用 M1/M2 两个变异自证：各红 4 例。
+> 失败计数：`IP + 小写用户名`，60 秒 5 次，第 6 次直接 429 且不跑 scrypt
+> （连错 5 次 401、第 6 次 429，实测）。
 
 **位置**：`src/app/api/auth/login/route.ts:72`、`auth-service.ts:73`
 

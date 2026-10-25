@@ -57,17 +57,22 @@ if (initialized && !reset) {
 
 db.exec(fs.readFileSync(SCHEMA_PATH, 'utf8'));
 
-// 视频随仓库分发，这里复制到运行时目录，避免和静态资源混淆
-fs.mkdirSync(VIDEO_DIR, { recursive: true });
-if (fs.existsSync(VIDEO_SRC)) {
-  fs.copyFileSync(VIDEO_SRC, path.join(VIDEO_DIR, VIDEO_FILE));
-} else {
-  console.warn(`[setup] 警告：${VIDEO_SRC} 缺失，任务里的视频将无法播放`);
+// 视频只属于演示数据：默认库不建演示账号，也就不需要这份素材
+const demoLogin = process.env.DEMO_LOGIN === '1';
+const copiedVideo = path.join(VIDEO_DIR, VIDEO_FILE);
+if (demoLogin) {
+  // 视频随仓库分发，这里复制到运行时目录，避免和静态资源混淆
+  fs.mkdirSync(VIDEO_DIR, { recursive: true });
+  if (fs.existsSync(VIDEO_SRC)) {
+    fs.copyFileSync(VIDEO_SRC, copiedVideo);
+  } else {
+    console.warn(`[setup] 警告：${VIDEO_SRC} 缺失，任务里的视频将无法播放`);
+  }
 }
 
-const copiedVideo = path.join(VIDEO_DIR, VIDEO_FILE);
-const counts = seedDatabase(db, {
+const { counts, sharedPassword } = seedDatabase(db, {
   videoSize: fs.existsSync(copiedVideo) ? fs.statSync(copiedVideo).size : 1,
+  demoLogin,
 });
 
 db.close();
@@ -75,4 +80,14 @@ db.close();
 console.log('[setup] 数据库初始化完成');
 console.log(`[setup] ${DB_PATH}`);
 for (const [k, v] of Object.entries(counts)) console.log(`[setup]   ${k}: ${v}`);
-console.log('[setup] 账号：admin/admin123（管理员） alice|bob|carol / demo123（标注员）');
+// 只在这里出现一次：本行之后口令没有任何副本（不写文件、不进 README）。
+// 忘了就 --reset 重建，或先用它登录再走改密接口。
+if (sharedPassword) {
+  // 四个账号共用这个口令：管理员与三位标注员。丢失只能 --reset 或走改密接口
+  console.log(`[setup] 初始口令（只显示这一次，四个账号共用）：${sharedPassword}`);
+  console.log('[setup] 想用文档里的固定演示口令：DEMO_LOGIN=1 node scripts/setup.mjs --reset');
+  
+} else {
+  console.log('[setup] 演示模式：admin/admin123（管理员） alice|bob|carol / demo123（标注员）');
+  console.log('[setup] 警告：演示账号是固定口令，禁止用于任何真实环境');
+}

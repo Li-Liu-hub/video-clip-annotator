@@ -12,6 +12,7 @@ import { insertSession } from '@/lib/db/repos/session-repo';
 import { UnauthorizedError } from '@/lib/errors';
 import { hashPassword, loginWithFreshSession, createSession, resolveSession, SESSION_TTL_MS } from '@/lib/services/auth-service';
 import { writeAudit } from '@/lib/services/audit-service';
+import { resetThrottle } from '@/lib/server/login-throttle';
 
 /** 路由与测试共享的可变状态；vi.hoisted 让它先于 import 存在 */
 const HOLDER = vi.hoisted(() => ({
@@ -85,9 +86,9 @@ function audits(action: string): AuditRow[] {
 }
 
 /** 吞掉预期内的抛出，让「失败之后状态如何」的用例只断言状态本身。 */
-function attempt(fn: () => unknown): void {
+async function attempt(fn: () => unknown): Promise<void> {
   try {
-    fn();
+    await fn();
   } catch {
     // 预期内：是否该抛由另一条用例负责
   }
@@ -124,6 +125,8 @@ beforeEach(() => {
   HOLDER.db = db;
   HOLDER.sid = null;
   vi.mocked(writeAudit).mockClear();
+  // 失败计数是模块级状态：不清空的话，前面的用例会把后面的用例提前锁在 429 上
+  resetThrottle();
 });
 
 afterEach(() => {
@@ -132,42 +135,44 @@ afterEach(() => {
 });
 
 describe('loginWithFreshSession', () => {
-  it('正确凭据签发的会话可解析出身份', () => {
-    const { sessionId } = loginWithFreshSession(db, 'alice', ALICE_PASSWORD);
+  it('正确凭据签发的会话可解析出身份', async () => {
+    const { sessionId } = await loginWithFreshSession(db, 'alice', ALICE_PASSWORD);
     expect(resolveSession(db, sessionId)?.username).toBe('alice');
   });
 
-  it('登录成功后请求带来的旧 sid 在库中已不存在', () => {
-    loginWithFreshSession(db, 'alice', ALICE_PASSWORD, staleSession());
+  it('登录成功后请求带来的旧 sid 在库中已不存在', async () => {
+    await loginWithFreshSession(db, 'alice', ALICE_PASSWORD, staleSession());
     expect(sessionExists(STALE_SID)).toBe(false);
   });
 
-  it('密码错误时旧 sid 仍然有效', () => {
+  it('密码错误时旧 sid 仍然有效', async () => {
     staleSession();
-    attempt(() => loginWithFreshSession(db, 'alice', 'wrong-password', STALE_SID));
+    await attempt(() => loginWithFreshSession(db, 'alice', 'wrong-password', STALE_SID));
     expect(sessionExists(STALE_SID)).toBe(true);
   });
 
-  it('密码错误抛 UnauthorizedError', () => {
-    expect(() => loginWithFreshSession(db, 'alice', 'wrong-password')).toThrow(UnauthorizedError);
+  it('密码错误抛 UnauthorizedError', async () => {
+    await expect(loginWithFreshSession(db, 'alice', 'wrong-password')).rejects.toThrow(
+      UnauthorizedError,
+    );
   });
 
-  it('新会话 id 不复用请求带来的旧 sid', () => {
-    const { sessionId } = loginWithFreshSession(db, 'alice', ALICE_PASSWORD, staleSession());
+  it('新会话 id 不复用请求带来的旧 sid', async () => {
+    const { sessionId } = await loginWithFreshSession(db, 'alice', ALICE_PASSWORD, staleSession());
     expect(sessionId).not.toBe(STALE_SID);
   });
 
-  it('未传旧 sid 时同样签发会话（管理员无租户）', () => {
-    const { sessionId } = loginWithFreshSession(db, 'admin', 'admin123');
+  it('未传旧 sid 时同样签发会话（管理员无租户）', async () => {
+    const { sessionId } = await loginWithFreshSession(db, 'admin', 'admin123');
     expect(resolveSession(db, sessionId)?.tenantId).toBeNull();
   });
 
-  it('旧 sid 属于其他用户时不销毁（防踢他人下线）', () => {
+  it('旧 sid 属于其他用户时不销毁（防踢他人下线）', async () => {
     // 若不加归属判断，任何知道他人 sid 的人用自己的账号登录一次就能把对方踢下线，
     // 反复调用即构成 DoS
     const adminSid = createSession(db, ADMIN_ID);
 
-    loginWithFreshSession(db, 'alice', ALICE_PASSWORD, adminSid);
+    await loginWithFreshSession(db, 'alice', ALICE_PASSWORD, adminSid);
 
     expect(sessionExists(adminSid)).toBe(true);
   });

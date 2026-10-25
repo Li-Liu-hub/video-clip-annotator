@@ -2,13 +2,14 @@
  * 登录与登出。
  *
  * 凭据校验、会话签发、登录审计都在 auth-service（失败也要在抛错前落审计，放在这里就晚了）；
- * 本文件只负责 HTTP 契约：解析请求体、写 / 删 cookie、采集审计上下文。
+ * 本文件只负责 HTTP 契约：解析请求体、写 / 删 cookie、采集审计上下文、按失败计数决定是否放行。
  * 状态码与错误码由 errors.ts 统一决定，不在 handler 里另拼一份。
  */
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { getDb } from '@/lib/server/db';
-import { ValidationError, toErrorResponse } from '@/lib/errors';
+import { RateLimitedError, UnauthorizedError, ValidationError, toErrorResponse } from '@/lib/errors';
+import { clearFailures, isLocked, noteFailure, throttleKey } from '@/lib/server/login-throttle';
 import { AUTH_LOGOUT_ACTION } from '@/lib/audit-actions';
 import {
   destroySession,
@@ -43,7 +44,11 @@ async function readCredentials(request: Request): Promise<Credentials> {
   return { username, password };
 }
 
-/** x-forwarded-for 可被伪造，仅作审计参考，不参与任何安全判定。 */
+/**
+ * x-forwarded-for 可被伪造：直接暴露时，改这个头就能换桶绕过限流。
+ * 仍用它分桶：部署在反向代理之后时该头由代理覆盖；且它只决定「这次失败记到哪个桶」，
+ * 不参与「能不能登录」的判定。
+ */
 function readContext(request: Request): AuditContext {
   const forwarded = request.headers.get('x-forwarded-for');
   return {
@@ -72,20 +77,29 @@ function errorResponse(err: unknown): NextResponse {
 export async function POST(request: Request) {
   const db = getDb();
   const { ip, userAgent } = readContext(request);
+  // 记失败用的 key。请求体没解析出来时仍为 null —— 字段缺失是 400，不是「猜错口令」。
+  let failureKey: string | null = null;
 
   try {
     const credentials = await readCredentials(request);
 
+    // 先判锁再校验：被锁时连 scrypt 都不跑，拒绝必须是廉价的，否则 DoS 防线等于没做。
+    // key 里带用户名，不按 IP 单独计数 —— 内网共用一个出口 IP 时，那会锁住整个办公室。
+    failureKey = throttleKey(ip, credentials.username);
+    if (isLocked(failureKey, Date.now())) throw new RateLimitedError();
+
     const staleSessionId = (await cookies()).get(SESSION_COOKIE)?.value;
     // 审计上下文一并交给 service：登录成功与三种失败的记录都在那里写，
     // 且失败记录必须先于抛错落库（顺序在 auth-service 内保证）
-    const { user, sessionId } = loginWithFreshSession(
+    const { user, sessionId } = await loginWithFreshSession(
       db,
       credentials.username,
       credentials.password,
       staleSessionId,
       { ip, userAgent },
     );
+    // 成功即清零：此前错过几次不该让这个账号在窗口内更接近被锁
+    clearFailures(failureKey);
 
     // 会话 id 只走 httpOnly cookie，不进响应体：否则 XSS 直接读得到
     const response = NextResponse.json({ ok: true, role: user.role });
@@ -99,6 +113,10 @@ export async function POST(request: Request) {
     });
     return response;
   } catch (err) {
+    // 只有「凭据不成立」计入失败：400（字段没填）与 429（已锁）都不是猜口令的证据
+    if (failureKey !== null && err instanceof UnauthorizedError) {
+      noteFailure(failureKey, Date.now());
+    }
     return errorResponse(err);
   }
 }

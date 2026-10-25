@@ -17,11 +17,14 @@ export const AUDIT_ACTIONS = {
 } as const;
 
 /**
- * 登出不进 AUDIT_ACTIONS：契约表只收八个业务与认证动作，而 `auth.logout` 在 07 就已埋点
- * 并有用例。单独成常量并入 AuditAction，既不删既有审计，也不让这里出现第九个键。
+ * 登出与改密不进 AUDIT_ACTIONS：契约表只收八个业务与认证动作，而 `auth.logout` 在 07、
+ * `auth.password_changed` 在 O1 才出现，且都有各自的用例。单独成常量并入 AuditAction，
+ * 既不删既有审计，也不让这里多出两个键（`tests/audit.test.ts` 逐项核对了那八个值）。
  */
 export const AUTH_LOGOUT_ACTION = 'auth.logout';
+export const AUTH_PASSWORD_CHANGED_ACTION = 'auth.password_changed';
 
 export type AuditAction =
   | (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS]
-  | typeof AUTH_LOGOUT_ACTION;
+  | typeof AUTH_LOGOUT_ACTION
+  | typeof AUTH_PASSWORD_CHANGED_ACTION;

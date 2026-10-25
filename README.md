@@ -19,11 +19,24 @@
 
 ```bash
 npm install
-node scripts/setup.mjs --reset     # 必须在 dev 之前：建表 + 灌种子数据
+node scripts/setup.mjs --reset     # 必须在 dev 之前：建表 + 建管理员
 npm run dev
 ```
 
-打开 <http://localhost:3000>，用下面的账号登录（登录页可一键进入，不必输密码）。
+打开 <http://localhost:3000>，用 `admin` 和 **setup 输出里那行随机口令** 登录。
+默认库只有一个管理员，口令是随机生成的，只在建库输出里出现一次
+（不写文件、不进本文）：漏抄了就 `node scripts/setup.mjs --reset` 重建，
+或者登录后调用 `POST /api/auth/password` 换掉。
+
+### 要看演示数据
+
+默认库没有租户、任务与视频 —— 交付形态不该带口令已知的账号。
+需要四个演示账号（3 租户 / 17 任务 / 历史账本）时，种子与前端各开一个开关：
+
+```bash
+DEMO_LOGIN=1 node scripts/setup.mjs --reset   # admin + alice|bob|carol
+NEXT_PUBLIC_DEMO_LOGIN=1 npm run dev          # 登录页出现「演示账号」一键入口
+```
 
 | 账号 | 密码 | 角色 | 可见范围 |
 |---|---|---|---|
@@ -31,6 +44,9 @@ npm run dev
 | `alice` | `demo123` | 标注员 · 林小雨 | 仅自己的工作空间 |
 | `bob` | `demo123` | 标注员 · 陈默 | 仅自己的工作空间 |
 | `carol` | `demo123` | 标注员 · 周予安 | 仅自己的工作空间 |
+
+两个开关都不设时，登录页没有「演示账号」区域，客户端 bundle 里也没有这些口令：
+`NEXT_PUBLIC_DEMO_LOGIN` 在构建期内联，未开启时整段演示数据被摇掉。
 
 **顺序不能反。** `predev` 只在库不存在时建库；库已存在但被上一次演示改过
 （任务被领完、被退回、账本多了几笔）时，`npm run dev` 看到的是残留状态，

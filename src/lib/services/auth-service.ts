@@ -1,21 +1,29 @@
 /**
- * 身份体系的唯一实现：密码哈希、凭据校验、会话签发与解析、身份装配、角色判定。
+ * 身份体系的唯一实现：密码哈希、凭据校验、会话签发与解析、身份装配、角色判定、改密。
  *
  * 不 import next/headers —— 读 cookie 放在 lib/server/current-user，
  * 本层才能在内存库上单测。
  */
-import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
-import { nowMs, type DB } from '@/lib/db';
-import { findByUsername, findWithTenantById, type UserWithTenantRow } from '@/lib/db/repos/user-repo';
+import { randomBytes, scrypt, scryptSync, timingSafeEqual } from 'node:crypto';
+import { promisify } from 'node:util';
+import { nowMs, writeTx, type DB } from '@/lib/db';
+import {
+  findById,
+  findByUsername,
+  findWithTenantById,
+  updatePasswordHash,
+  type UserWithTenantRow,
+} from '@/lib/db/repos/user-repo';
 import {
   deleteExpired,
+  deleteOtherSessionsOfUser,
   deleteSession,
   findSession,
   findSessionWithUser,
   insertSession,
 } from '@/lib/db/repos/session-repo';
-import { AUDIT_ACTIONS } from '@/lib/audit-actions';
-import { UnauthorizedError } from '@/lib/errors';
+import { AUDIT_ACTIONS, AUTH_PASSWORD_CHANGED_ACTION } from '@/lib/audit-actions';
+import { UnauthorizedError, ValidationError } from '@/lib/errors';
 import { writeAudit, type AuditEntry } from './audit-service';
 
 export type SessionUser = {
@@ -59,6 +67,28 @@ const SESSION_ID_BYTES = 24;
 const DEFAULT_TIMEZONE = 'Asia/Shanghai';
 const CREDENTIAL_MESSAGE = '用户名或密码不正确';
 
+/** 改密的最短长度。与登录不共用常量：登录不限长度（老口令可能更短），只在设置新口令时要求。 */
+export const MIN_PASSWORD_LENGTH = 8;
+
+/**
+ * scrypt 的异步版：计算落在 libuv 线程池里，不占事件循环。
+ *
+ * 同步版每次约 66ms，20 个并发登录就是 1.3 秒内全站不可用 ——
+ * 一个未认证接口能当 DoS 开关用，这才是必须换掉的真实原因。
+ *
+ * 标注返回类型是必须的：scrypt 有多个重载，promisify 对它只能推出 unknown。
+ */
+const deriveAsync = promisify(scrypt) as (
+  password: string,
+  salt: Buffer,
+  keylen: number,
+) => Promise<Buffer>;
+
+/** 派生密钥的唯一异步入口。集中在这里，将来换参数只改一处。 */
+async function deriveKey(plain: string, salt: Buffer, keylen: number): Promise<Buffer> {
+  return deriveAsync(plain, salt, keylen);
+}
+
 /**
  * 登录失败的三种原因，只写进审计，不进响应 —— 对外三种共用上面那一句文案。
  *
@@ -68,24 +98,42 @@ const CREDENTIAL_MESSAGE = '用户名或密码不正确';
 export type LoginFailureReason = 'bad_password' | 'no_such_user' | 'inactive';
 
 /** 请求上下文由路由层采集后注入：service 层不得 import next/headers。 */
-export type AuthAuditContext = { ip?: string | null; userAgent?: string | null };
+export type AuditContext = { ip?: string | null; userAgent?: string | null };
 
-export function hashPassword(plain: string): string {
-  const salt = randomBytes(SALT_BYTES);
-  const derived = scryptSync(plain, salt, KEY_BYTES);
+function formatHash(salt: Buffer, derived: Buffer): string {
   return `${PASSWORD_SCHEME}$${salt.toString('hex')}$${derived.toString('hex')}`;
 }
 
 /**
- * 长度与字符集都先校验：畸形串（空 salt、非十六进制）交给 scryptSync 会抛 RangeError，
+ * 同步哈希只服务三个不经过请求的调用方：测试夹具、scripts/seed.mjs、以及下面的占位哈希。
+ * 请求路径一律走异步版 —— 在请求线程里跑 scryptSync 正是 O1 要修的问题之一。
+ */
+export function hashPassword(plain: string): string {
+  const salt = randomBytes(SALT_BYTES);
+  return formatHash(salt, scryptSync(plain, salt, KEY_BYTES));
+}
+
+/** 异步哈希：改密时算新口令的存储值。 */
+async function hashPasswordAsync(plain: string): Promise<string> {
+  const salt = randomBytes(SALT_BYTES);
+  return formatHash(salt, await deriveKey(plain, salt, KEY_BYTES));
+}
+
+/**
+ * 长度与字符集都先校验：畸形串（空 salt、非十六进制）交给 scrypt 会抛 RangeError，
  * 登录接口就从 401 变成 500。
  */
 function isHexBytes(text: string, bytes: number): boolean {
   return text.length === bytes * 2 && /^[0-9a-f]+$/i.test(text);
 }
 
-/** 恒定时间比较。格式不合法一律返回 false，不抛错。 */
-export function verifyPassword(plain: string, stored: string): boolean {
+/**
+ * 恒定时间比较。格式不合法一律返回 false，不抛错。
+ *
+ * 异步只换了计算方式，比较逻辑一字未改：先校验格式再比长度，
+ * 长度不等时 timingSafeEqual 会抛 RangeError。
+ */
+export async function verifyPassword(plain: string, stored: string): Promise<boolean> {
   const parts = stored.split('$');
   if (parts.length !== 3) return false;
 
@@ -94,8 +142,7 @@ export function verifyPassword(plain: string, stored: string): boolean {
   if (!isHexBytes(saltHex, SALT_BYTES) || !isHexBytes(hashHex, KEY_BYTES)) return false;
 
   const expected = Buffer.from(hashHex, 'hex');
-  const derived = scryptSync(plain, Buffer.from(saltHex, 'hex'), expected.length);
-  // 先比长度：timingSafeEqual 长度不等会抛 RangeError
+  const derived = await deriveKey(plain, Buffer.from(saltHex, 'hex'), expected.length);
   return derived.length === expected.length && timingSafeEqual(derived, expected);
 }
 
@@ -105,6 +152,7 @@ export function verifyPassword(plain: string, stored: string): boolean {
  * 若查不到用户就直接抛错，响应时间会是「存在」的 1/2000，
  * 攻击者据此可批量枚举用户名——「同一句文案」的防护就白做了。
  * 延迟初始化：避免模块加载时白付一次 scrypt。
+ * 这里保留同步版：一个进程只算一次，摊到请求上可忽略；换成异步会让 authenticate 多一个 await 分支。
  */
 let dummyHash: string | null = null;
 function getDummyHash(): string {
@@ -113,16 +161,16 @@ function getDummyHash(): string {
 }
 
 /** 校验凭据并返回身份。失败统一抛 UnauthorizedError，不区分「用户不存在」与「密码错」。 */
-export function authenticate(
+export async function authenticate(
   db: DB,
   username: string,
   password: string,
-  context: AuthAuditContext = {},
-): SessionUser {
+  context: AuditContext = {},
+): Promise<SessionUser> {
   const credential = findByUsername(db, username);
 
   // 无论用户是否存在都跑一次 scrypt，消除时间侧信道
-  const passwordOk = verifyPassword(password, credential?.password_hash ?? getDummyHash());
+  const passwordOk = await verifyPassword(password, credential?.password_hash ?? getDummyHash());
 
   // 三种失败原因分开记在审计里，对外却共用同一个出口 —— 泄漏「用户不存在」
   // 等于送攻击者半个用户名枚举器，所以响应里说粗的、日志里记细的。
@@ -168,7 +216,7 @@ function failLogin(
     username: string;
     reason: LoginFailureReason;
     actorId: string | null;
-    context: AuthAuditContext;
+    context: AuditContext;
   },
 ): never {
   auditLogin(db, {
@@ -201,14 +249,14 @@ function isUsableIdentity(row: UserWithTenantRow): boolean {
  * 先校验再清旧会话，顺序不可颠倒：反过来的话，攻击者拿错误密码反复调用
  * 就能把受害者的在线会话挤下线，等于一个不需要口令的踢人接口。
  */
-export function loginWithFreshSession(
+export async function loginWithFreshSession(
   db: DB,
   username: string,
   password: string,
   staleSessionId?: string,
-  context: AuthAuditContext = {},
-): { user: SessionUser; sessionId: string } {
-  const user = authenticate(db, username, password, context);
+  context: AuditContext = {},
+): Promise<{ user: SessionUser; sessionId: string }> {
+  const user = await authenticate(db, username, password, context);
 
   // 只销毁属于当前登录用户的旧会话。
   // 否则任何知道他人 sid 的人，都能用自己的账号登录一次把对方踢下线——反复调用即构成 DoS。
@@ -264,6 +312,69 @@ export function destroySession(db: DB, sessionId: string): void {
 export function purgeExpiredSessions(db: DB, nowMs: number): number {
   // 形参名沿用契约；此处遮蔽同名时钟函数是刻意的：清理只认调用方给的时刻，不读系统时钟
   return deleteExpired(db, nowMs);
+}
+
+export type PasswordChangeInput = { currentPassword: string; newPassword: string };
+
+/**
+ * 改密。成功后销毁该用户除当前会话外的所有会话。
+ *
+ * 旧密码错与登录失败抛同一个错误（同一句文案）：
+ * 区分「旧密码错」与「账号不存在」等于给了半个用户名枚举器。
+ *
+ * 为什么多一个 currentSessionId：契约的四个入参里没有「当前是哪条会话」，
+ * 而「保留当前会话」必须知道它。做成可选而非必选，是为了让四个参数的调用形式仍然成立；
+ * 缺省时没有可保留的对象，按「销毁全部会话」处理（安全侧默认）。
+ *
+ * 为什么整段放进 writeTx：改密要同时改哈希、踢掉旧会话、留审计。
+ * 「口令已换但旧会话还活着」和「换了口令但没留痕」都不该发生，所以三件事要么全成要么全不成。
+ */
+export async function changePassword(
+  db: DB,
+  actor: SessionUser,
+  input: PasswordChangeInput,
+  context: AuditContext,
+  currentSessionId?: string,
+): Promise<void> {
+  // 先校验新口令的形状：不合格就不必付一次 scrypt。只要求长度，不要求大小写数字符号 ——
+  // 复杂度规则的实际效果是让人在末尾加个 1!，长度才是唯一有意义的门槛。
+  if (input.newPassword.length < MIN_PASSWORD_LENGTH) {
+    throw new ValidationError(`新密码至少 ${MIN_PASSWORD_LENGTH} 位`);
+  }
+  if (input.newPassword === input.currentPassword) {
+    throw new ValidationError('新密码不能与当前密码相同');
+  }
+
+  // 账号按会话身份回表取，不按用户名重新查：actor 已由会话证明，用户名只用于审计。
+  // 取不到（并发删号）时仍跑一次等价开销的校验，与登录同一套防时序侧信道的逻辑。
+  const credential = findById(db, actor.id);
+  const currentOk = await verifyPassword(
+    input.currentPassword,
+    credential?.password_hash ?? getDummyHash(),
+  );
+  if (!credential || !currentOk) throw new UnauthorizedError(CREDENTIAL_MESSAGE);
+
+  const passwordHash = await hashPasswordAsync(input.newPassword);
+
+  writeTx(db, (tx) => {
+    updatePasswordHash(tx, actor.id, passwordHash);
+    // currentSessionId 缺省时传空串：sessions.id 是 48 位十六进制，空串匹配不到任何一行
+    deleteOtherSessionsOfUser(tx, actor.id, currentSessionId ?? '');
+    // detail 只放 username：口令、新旧哈希一概不进审计表，它会被导出、会被贴进工单
+    writeAudit(
+      tx,
+      {
+        actorId: actor.id,
+        actorRole: actor.role,
+        tenantId: actor.tenantId,
+        action: AUTH_PASSWORD_CHANGED_ACTION,
+        detail: { username: actor.username },
+        ip: context.ip ?? null,
+        userAgent: context.userAgent ?? null,
+      },
+      { strict: true },
+    );
+  });
 }
 
 /** 装配身份的单一出口：时区缺省在此补齐，其余字段一律来自库。 */

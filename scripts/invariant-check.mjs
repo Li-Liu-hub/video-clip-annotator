@@ -127,7 +127,9 @@ function buildTempDb() {
   const db = new Database(':memory:');
   db.pragma('foreign_keys = ON');
   db.exec(fs.readFileSync(SCHEMA_PATH, 'utf8'));
-  seedDatabase(db, { videoSize: 1 });
+  // demoLogin 显式打开：这条链路要扮演 alice 走领取→提交→退回，
+  // 需要那四个固定口令的账号。库在内存里，跑完即销毁，不是交付库。
+  seedDatabase(db, { videoSize: 1, demoLogin: true });
 
   const { createTasks, claimTask } = require('@/lib/services/task-service');
   const { upsertSegment } = require('@/lib/services/segment-service');
