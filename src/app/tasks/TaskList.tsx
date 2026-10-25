@@ -67,6 +67,7 @@ const STATUS: Record<TaskStatus, { label: string; className: string }> = {
 const CLAIM_CONFLICT_NOTICE = '这条任务刚被其他人领走了';
 const RELEASE_CONFLICT_NOTICE = '这条任务已不在你名下';
 const REJECT_CONFLICT_NOTICE = '这条任务已不在待审核状态';
+const REOPEN_CONFLICT_NOTICE = '这条任务当前状态不允许重新打开';
 const ACTION_FAILED_NOTICE = '操作失败，请刷新页面后重试';
 
 /**
@@ -159,6 +160,43 @@ export default function TaskList({
     }
 
     updateRow(taskId, { busy: false, notice: ACTION_FAILED_NOTICE });
+  }
+
+  /**
+   * 重新打开被退回的任务。
+   *
+   * 退回把任务置为 rejected，而进工作台与再次提交都要求 claimed ——
+   * 没有这个动作，标注员能看见自己被退回的任务、也知道原因，却改不了。
+   *
+   * 成功后就地改行、保留原因：服务端也不清它（要显示到下一次提交）。
+   */
+  async function reopen(taskId: string) {
+    if (rows[taskId]?.busy) return;
+    updateRow(taskId, { busy: true, notice: null });
+
+    let status: number;
+    try {
+      const response = await fetch(`/api/tasks/${taskId}/reopen`, { method: 'POST' });
+      status = response.status;
+    } catch {
+      updateRow(taskId, { busy: false, notice: ACTION_FAILED_NOTICE });
+      return;
+    }
+
+    if (status === 200) {
+      updateRow(taskId, {
+        busy: false,
+        status: 'claimed',
+        claimedBy: currentUser?.id ?? null,
+        claimedByName: currentUser?.displayName ?? null,
+      });
+      return;
+    }
+
+    updateRow(taskId, {
+      busy: false,
+      notice: status === 409 ? REOPEN_CONFLICT_NOTICE : ACTION_FAILED_NOTICE,
+    });
   }
 
   /**
@@ -267,8 +305,12 @@ export default function TaskList({
                     </td>
                     <td className="px-3 py-2.5">
                       <span className={`tag ${statusMeta.className}`}>{statusMeta.label}</span>
-                      {/* 退回原因就地显示：管理员与标注员都不必再点开一次才知道哪里不合格 */}
-                      {status === 'rejected' && rejectReason ? (
+                      {/* 退回原因就地显示：管理员与标注员都不必再点开一次才知道哪里不合格。
+                          条件不用 status === 'rejected'：重新打开后状态变 claimed，但原因要一直
+                          显示到下一次提交，否则标注员点进来看到「进行中」，却想不起要改什么。
+                          可见性只给「本人或能退回的人」：今天 SQL 的范围已经挡住了别人，
+                          但列表范围一旦放宽，这里就是原因泄漏的第一道口 */}
+                      {rejectReason && (mine || canReject) ? (
                         <div
                           className="mt-1 max-w-[180px] truncate text-[11px] text-bad"
                           title={rejectReason}
@@ -317,6 +359,19 @@ export default function TaskList({
 
                               {status === 'claimed' && !mine ? (
                                 <span className="text-[11.5px] text-ink-faint">进行中</span>
+                              ) : null}
+
+                              {/* 退回留在原人名下，所以只有本人能看到这个按钮；
+                                  不是自己的 rejected 任务，列表里连原因都不该展开给他 */}
+                              {status === 'rejected' && mine ? (
+                                <button
+                                  type="button"
+                                  className="btn btn-primary"
+                                  disabled={busy}
+                                  onClick={() => void reopen(task.id)}
+                                >
+                                  重新打开
+                                </button>
                               ) : null}
                             </>
                           ) : null}

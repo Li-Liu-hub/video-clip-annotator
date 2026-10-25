@@ -11,8 +11,13 @@
  * readOnly（已提交的任务）只断写入：播放、seek、方向键微调照旧。
  *
  * 撤销 / 重做走 use-history：历史栈存区间（id 会变），回退时按差异串行调接口再重拉真值。
+ *
+ * 提交成功后 router.refresh() 而不本地改状态：提交改了 task.status，
+ * 整页的可读写形态由服务端按 status 决定，只改组件会留下一个还能拖的只读任务（一拖就 409）。
  */
+import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { totalDuration } from '@/lib/interval';
 import type { Segment } from '@/lib/segment-interval';
 import { GENERIC_SAVE_FAILED, readErrorMessage, readSegment } from '@/lib/segment-payload';
 import { selectionAfterDelete, selectionAfterSave } from '@/lib/segment-selection';
@@ -21,6 +26,7 @@ import { SHORTCUT_HINTS, formatShortcutHint } from '@/lib/shortcuts';
 import { formatDuration } from '@/lib/time';
 import type { WorkTask } from '@/lib/services/workbench-service';
 import SegmentList from './SegmentList';
+import SubmitBar from './SubmitBar';
 import Timeline from './Timeline';
 import { useHistory } from './use-history';
 import { useShortcuts } from './use-shortcuts';
@@ -48,7 +54,22 @@ type Props = { task: WorkTask; initialSegments: SegmentRow[]; readOnly?: boolean
 const ERROR_VISIBLE_MS = 3000;
 
 export default function Workbench({ task, initialSegments, readOnly = false }: Props) {
+  const router = useRouter();
   const videoRef = useRef<HTMLVideoElement>(null);
+  /** 提交在途：按钮禁用 + 文案变化。与片段保存的 committing 分开，两者语义不同。 */
+  const [submitting, setSubmittingState] = useState(false);
+  /**
+   * 提交在途的同步副本。
+   *
+   * 与 committingRef 同一个理由：拖拽的 onCommit 在 pointerdown 那一刻就被捕获，
+   * 只读 state 会放过一次「提交已经在路上，用户又拖了一段」的写入 ——
+   * 服务端事务会把那一刻库里的样子固化，账本数字与用户刚点头的确认框对不上。
+   */
+  const submittingRef = useRef(false);
+  const setSubmitting = useCallback((next: boolean) => {
+    submittingRef.current = next;
+    setSubmittingState(next);
+  }, []);
   const [playing, setPlaying] = useState(false);
   const [currentMs, setCurrentMs] = useState(0);
   /** 首屏来自服务端，之后以接口返回为准 —— 本地只是服务器状态的副本。 */
@@ -250,7 +271,7 @@ export default function Workbench({ task, initialSegments, readOnly = false }: P
      * 语义是「允许写入」，不是「允许按键」：只读时仍要能空格播放、方向键微调，
      * 只禁 I / O / Delete / 撤销。整组不绑会让回顾时按空格没反应，体验断裂。
      */
-    enabled: !readOnly && !history.busy,
+    enabled: !readOnly && !history.busy && !submitting,
     videoRef,
     selectedId,
     // 与时间轴同一把尺子：不用 video.duration，moov 在尾部的 mp4 会读到 Infinity
@@ -316,7 +337,7 @@ export default function Workbench({ task, initialSegments, readOnly = false }: P
   async function removeSegment(id: string) {
     // 只读的第二道闸：列表不渲染删除按钮，但键盘 Delete 与将来的新调用点仍可能直达这里。
     // 只有 UI 一层的话，请求会打到服务端拿 409，用户看到的是与「只读」无关的错误。
-    if (readOnly) return;
+    if (readOnly || submittingRef.current) return;
     // 回退在途时不允许删：撤销的 diff 基于回退开始那一刻的数组，
     // 中途少掉一段，剩下的请求就会按错的目标继续写
     if (history.busyRef.current) return;
@@ -355,6 +376,37 @@ export default function Workbench({ task, initialSegments, readOnly = false }: P
   }
 
   /**
+   * 提交整条任务。
+   *
+   * 成功后 router.refresh() 而不本地改状态：提交改了 task.status，
+   * 整页的可读写形态由服务端按 status 决定（E8a）。只改组件的话，
+   * 页面看起来还是可编辑的，用户再拖一次就 409。
+   */
+  async function submitWork() {
+    if (segments.length === 0 || submitting) return;
+    setSaveError(null);
+    setSubmitting(true);
+    try {
+      const response = await fetch(`/api/tasks/${task.id}/submit`, { method: 'POST' });
+      if (!response.ok) {
+        setSaveError(readErrorMessage(await response.json().catch(() => null)));
+        // 失败必须复位：否则按钮永远停在「提交中…」，用户只能刷新页面
+        setSubmitting(false);
+        return;
+      }
+      // 不读响应体：提交结果不改变这一页要显示的内容，页面马上会被 refresh 覆盖
+      router.refresh();
+      // 成功后刻意不复位 submitting：refresh 是异步的，复位了会留一段
+      // 「按钮已可点、时间轴仍可拖」的窗口。保持禁用，直到服务端把整页切成只读，
+      // 组件随之卸载 —— 这才是唯一没有窗口的收尾方式
+      return;
+    } catch {
+      setSaveError(GENERIC_SAVE_FAILED);
+    }
+    setSubmitting(false);
+  }
+
+  /**
    * 提交拖拽草案：replacedId 为 null 是新建，否则替换那一段。
    *
    * 只有服务端返回成功才改本地数组：失败时若先乐观更新，界面会显示一个刷新后消失的片段。
@@ -365,10 +417,13 @@ export default function Workbench({ task, initialSegments, readOnly = false }: P
   async function commitSegment(draft: Segment, replacedId: string | null) {
     // 只读的第二道闸：时间轴不进拖拽状态机，但快捷键与将来的新调用点仍可能直达这里。
     // 静默 return 是对的：只读下「不能保存」不是错误，没有任何提示才不至于误导。
-    if (readOnly) return;
+    if (readOnly || submittingRef.current) return;
     // 回退在途时不允许提交：撤销的 diff 基于回退开始那一刻的数组，
     // 中途多 / 少一段，剩下的请求就会按错的目标继续写
     if (history.busyRef.current) return;
+    // 提交在途时不允许再改片段：服务端会按事务那一刻的库内容固化，
+    // 用户刚在确认框里看到的片段数与时长就作废了
+    if (submittingRef.current) return;
     // 删除在途时不允许提交：DELETE 用的是点下去那一刻的 id，
     // 若这里再发一个「替换 X」，X 可能已经被删掉，必然 404 且提示无法理解。
     // 读 ref 而非 state：拖拽回调在 pointerdown 就被捕获，手势先于删除开始时闭包里还是旧值
@@ -498,14 +553,18 @@ export default function Workbench({ task, initialSegments, readOnly = false }: P
             deletingId={deletingId}
             onSelect={selectSegment}
             onDelete={removeSegment}
-            busy={deletingId !== null || committing || history.busy}
+            busy={deletingId !== null || committing || submitting || history.busy}
             readOnly={readOnly}
           />
         </aside>
       </div>
 
       {/* 固定高度：提示出现与消失都不推挤时间轴，标注时轨道位置不跳 */}
-      <div className="flex h-4 items-center px-1" aria-live="polite">
+      <div
+        id="workbench-status"
+        className="flex h-4 items-center px-1"
+        aria-live="polite"
+      >
         {saveError ? (
           <p className="text-[11.5px] text-bad">{saveError}</p>
         ) : committing ? (
@@ -534,6 +593,17 @@ export default function Workbench({ task, initialSegments, readOnly = false }: P
         onSelect={changeSelection}
         readOnly={readOnly}
       />
+
+      {/* 已提交的任务不渲染提交区：那个任务已经没有什么可提交的了 */}
+      {readOnly ? null : (
+        <SubmitBar
+          segmentCount={segments.length}
+          totalMs={totalDuration(segments)}
+          busy={submitting || committing || deletingId !== null || history.busy}
+          onSubmit={() => void submitWork()}
+          error={saveError}
+        />
+      )}
 
       {/* 键位提示常驻页脚：快捷键不写在界面上，用户永远不知道有 I / O。
           文案来自 SHORTCUT_HINTS，单测锁住它不漂移 */}
