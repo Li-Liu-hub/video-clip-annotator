@@ -6,9 +6,9 @@
 
 > **文档状态：33 / 33**
 >
-> 已完成 A1–I3 共 33 个功能点（另加计划外的 E8a，以及 M4 之后的加固 O1–O3），
-> 832 例自动化测试 + 53 项全链路验收（`scripts/e2e-check.mjs`）+ 五组七条不变量检查
-> （`scripts/invariant-check.mjs`）。验收记录见 [`docs/REPORT.md`](../REPORT.md)。
+> 已完成 A1–I3 共 33 个功能点（另加计划外的 E8a，M4 之后的加固 O1–O3，
+> 以及收尾 P1–P3），850 例自动化测试 + 53 项全链路验收（`scripts/e2e-check.mjs`）
+> + 五组七条不变量检查（`scripts/invariant-check.mjs`）。验收记录见 [`docs/REPORT.md`](../REPORT.md)。
 >
 > 已知未修项见文末「未修的已知项」表 —— 那张表是账本，不是待办清单：
 > 每一条都写明了「为什么不修」或「什么时候该修」。其中标注为「人工」的条目，
@@ -143,6 +143,17 @@ M4 之后的收口项：不改功能边界，只补交付前的安全缺口与�
 | O2  | 重复实现收口（归属门禁三份、上传上限两份、`newId`）+ 写接口同源校验 | [35-dedup-csrf](35-dedup-csrf.md)           | O1  | 1.5h |
 | O3  | 提交的 TOCTOU 与服务端视频时长                       | [36-toctou-duration](36-toctou-duration.md) | F1 C1 | 1h  |
 
+## P · 收尾
+
+M4 之后仍挂在「未修」表里的三条。共同点是：都不是功能缺失，而是**已知会丢数据或盖住反馈**，
+留着就是把问题交给下一个人。
+
+| #   | 功能点                                      | 文档                                          | 依赖  | 预计  |
+| --- | ---------------------------------------- | ------------------------------------------- | --- | --- |
+| P1  | 标签保真（拖动替换继承、撤销回放带 label、API 接受 label） | [37-label-and-guards](37-label-and-guards.md) | E3 E8 | 2h  |
+| P2  | 并发删除守卫自动化（延迟 DELETE，单指针复现）             | 同上                                         | O1c | 0.5h |
+| P3  | 相邻色块选中描边的层级（z-10 / 草案 z-20）              | 同上                                         | H5  | 0.5h |
+
 ---
 
 ## 未修的已知项（Reviewer 记录，别让它们口头消失）
@@ -154,7 +165,7 @@ E3–E7 五轮审查中，Reviewer 判为非阻断但明确记录的问题。
 |---|---|---|---|
 | O1a | E5 | ~~`commitSegment` 的 `deleting` 守卫读 state，手势先于删除开始时读到过期值~~ **E6 已修**：守卫改读 `deletingRef`，`if (deleting)` 已从全仓消失（待 O1c 手工确认） | 已修 |
 | O1b | E5 | ~~`deleting` 是布尔、行身份靠 `SegmentList` 的本地 `pendingId` + 修补 effect 兜着~~ **E7 已修**。证据：`git grep pendingId` 全仓 0 命中；`SegmentList` 里 `useState`/`useEffect` 0 处；`deletingId: string \| null` 由 Workbench 唯一持有，键盘与鼠标删除写同一份行身份 | 已修 |
-| O1c | E6 | **并发守卫无自动化覆盖**。项目无组件测试设施，只有结构保证（ref 对象跨渲染稳定 + 入口第一行守卫）。手工验证方式：DevTools 限速 Slow 3G 让 DELETE 拖到约 2s，一指按住片段拖、另一指点头删，看 Network 的 **DELETE 次数必须为 1、POST 次数必须为 0**（不能看「界面有没有报错」——404 后本地数组本来就不变）。**E7 未补测，仍待人工** | 人工 |
+| O1c | E6 | ~~**并发守卫无自动化覆盖**。项目无组件测试设施，只有结构保证（ref 对象跨渲染稳定 + 入口第一行守卫）。~~ **P2 已自动化**：Playwright 把 DELETE 延迟 2s 拉长在途窗口，单指针在窗口内拖空白处 → POST 0 次、DELETE 1 次、出现「正在删除片段」；删除完成后重试 → POST 1 次。脚本 `.workbuddy/browser-polish.py`（一次性，不在 npm test 里） | 已自动化（脚本） |
 | O2 | E4 遗留 | ~~`committing` 之间无互斥~~ **E6 已修**：`committingRef` 入口守卫 | 已修 |
 | O4 | E6 | ~~下标当身份~~ **E7 已修**。证据：`replacedIndex` / `movingIndex` / `hitIndex` 全仓 0 命中；`onCommit(draft, replacedId)` 四个环节签名统一；`use-segment-drag` 直接用 `hit.id` 排除自身 | 已修 |
 | G1 | E6 | ~~被守卫吞掉的第二次提交是静默的~~ **E7 已修**：三处守卫各给提示（删除在途 / 提交在途 / 被替换段已删）。`cursor-progress` 的视觉反馈仍可加 | 已修 |
@@ -165,9 +176,9 @@ E3–E7 五轮审查中，Reviewer 判为非阻断但明确记录的问题。
 | K13 | E7 | ~~长按 Delete 会「删一段 → 选中迁移 → 接着删」连锁清空~~ **已修**：`event.repeat` 时直接 return，只认第一次按下 | 已修 |
 | G4 | E5 | 删除中缺 `aria-busy`（`disabled` + 文案已可读，收益小） | 与 G5 一起 |
 | G5 | E5 | 删除后焦点落回 `body`，无焦点管理 | 独立议题，需要设计 |
-| H5 | E5 | 相邻色块紧贴时选中描边 `ring-2` 会被后绘制的兄弟盖掉半圈。**E6 已实现冲突高亮，待人眼目视** | 人工目视 |
+| H5 | E5 | ~~相邻色块紧贴时选中描边 `ring-2` 会被后绘制的兄弟盖掉半圈~~ **P3 已修**：选中/冲突块 `z-10`、草案 `z-20`；浏览器断言选中块 `z-index=10`、兄弟 `auto` | 已修 |
 | — | E5 | E5 的 GET 复用 `requireWritableTask`，submitted 任务返回 409 而非空数组。**E8 的只读回顾不能复用这个 GET** | E8 |
-| — | O3 浏览器验收 | **撤销删除 / 拖动替换后 `label` 丢失**：历史栈只存区间（22-undo-redo 的契约），`upsertSegment` 替换时固定 `label: null`。界面没有标签编辑入口，影响限于种子/API 写入的标签；但种子片段的「有效操作」会在拖动或撤销后消失 | 做标签编辑功能时（需把 label 纳入历史栈与 diff，或替换时继承 `target.label`） |
+| — | O3 浏览器验收 | ~~**撤销删除 / 拖动替换后 `label` 丢失**：历史栈只存区间，`upsertSegment` 替换时固定 `label: null`。~~ **P1 已修**：`HistoryInterval` 带 label（匹配仍只比两端）；替换未传 label 继承旧值、显式 null 清空；撤销载荷 `label` 必填（漏传编译失败）。变异：服务丢 label → 7 例红，快照丢 label → 2 例红，载荷丢 label → 1 例红；浏览器实测拖动与撤销后「有效操作」都在 | 已修 |
 
 ---
 

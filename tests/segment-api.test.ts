@@ -22,6 +22,10 @@ import {
 // 403 用例需要伪造请求上下文；其余用例直接调 service，不经过这一层
 vi.mock('@/lib/server/current-user', () => ({ getCurrentUser: vi.fn() }));
 
+// 路由通过 getDb 取连接；把本文件的内存库递进去，否则会打到 data/app.db
+const DB_HOLDER = vi.hoisted(() => ({ db: null as unknown }));
+vi.mock('@/lib/server/db', () => ({ getDb: () => DB_HOLDER.db }));
+
 const TENANT_A = 'aaaaaaaaaaaaaaaa';
 const TENANT_B = 'bbbbbbbbbbbbbbbb';
 
@@ -136,11 +140,18 @@ function addOwned(
 }
 
 /** 建库用的片段：写入合法的互不重叠区间，触发器不会拦。 */
-function addSegment(id: string, taskId: string, tenantId: string, startMs: number, endMs: number): void {
+function addSegment(
+  id: string,
+  taskId: string,
+  tenantId: string,
+  startMs: number,
+  endMs: number,
+  label: string | null = null,
+): void {
   db.prepare(
     `INSERT INTO segments (id, task_id, tenant_id, start_ms, end_ms, label, created_at)
-     VALUES (?, ?, ?, ?, ?, NULL, 0)`,
-  ).run(id, taskId, tenantId, startMs, endMs);
+     VALUES (?, ?, ?, ?, ?, ?, 0)`,
+  ).run(id, taskId, tenantId, startMs, endMs, label);
 }
 
 function seedRows(): void {
@@ -170,6 +181,13 @@ function segmentOf(id: string): { start_ms: number; end_ms: number } | null {
   return row ?? null;
 }
 
+function labelOf(id: string): string | null {
+  const row = db.prepare('SELECT label FROM segments WHERE id = ?').get(id) as
+    | { label: string | null }
+    | undefined;
+  return row?.label ?? null;
+}
+
 /** 把「抛错」与「返回」压成同一个可断言的字面量，避免两者被同一个 it 混过去。 */
 function capture(fn: () => unknown): { threw: string; status: number } {
   try {
@@ -193,6 +211,7 @@ function swallow(fn: () => void): void {
 beforeEach(() => {
   db = seed();
   seedRows();
+  DB_HOLDER.db = db;
   vi.clearAllMocks();
 });
 
@@ -345,6 +364,116 @@ describe('替换', () => {
       upsertSegment(db, ALICE, T_MINE, { startMs: 10_000, endMs: 30_000, replaces: S_MINE }),
     );
     expect(countOf(T_MINE)).toBe(2);
+  });
+});
+
+describe('标签：新建、继承与显式清空', () => {
+  it('新建带标签时落库', () => {
+    const row = upsertSegment(db, ALICE, T_MINE, {
+      startMs: 30_000,
+      endMs: 40_000,
+      label: '有效操作',
+    });
+    expect([row.label, labelOf(row.id)]).toEqual(['有效操作', '有效操作']);
+  });
+
+  it('标签首尾空白被去掉，纯空白归一成 null', () => {
+    const padded = upsertSegment(db, ALICE, T_MINE, {
+      startMs: 30_000,
+      endMs: 40_000,
+      label: '  说话人A  ',
+    });
+    const blank = upsertSegment(db, ALICE, T_MINE, {
+      startMs: 41_000,
+      endMs: 42_000,
+      label: '   ',
+    });
+    expect([padded.label, blank.label]).toEqual(['说话人A', null]);
+  });
+
+  it('替换不传标签时继承旧值（拖动不该抹掉标签）', () => {
+    db.prepare('UPDATE segments SET label = ? WHERE id = ?').run('有效操作', S_MINE);
+
+    const row = upsertSegment(db, ALICE, T_MINE, {
+      startMs: 12_000,
+      endMs: 18_000,
+      replaces: S_MINE,
+    });
+    expect([row.label, labelOf(row.id)]).toEqual(['有效操作', '有效操作']);
+  });
+
+  it('替换传 label: null 时显式清空（不能被当成「没传」）', () => {
+    db.prepare('UPDATE segments SET label = ? WHERE id = ?').run('有效操作', S_MINE);
+
+    const row = upsertSegment(db, ALICE, T_MINE, {
+      startMs: 12_000,
+      endMs: 18_000,
+      replaces: S_MINE,
+      label: null,
+    });
+    expect([row.label, labelOf(row.id)]).toEqual([null, null]);
+  });
+
+  it('替换传新标签时覆盖旧值', () => {
+    db.prepare('UPDATE segments SET label = ? WHERE id = ?').run('旧标签', S_MINE);
+
+    const row = upsertSegment(db, ALICE, T_MINE, {
+      startMs: 12_000,
+      endMs: 18_000,
+      replaces: S_MINE,
+      label: '新标签',
+    });
+    expect(row.label).toBe('新标签');
+  });
+
+  it('标签超过上限时抛 ValidationError，且不落库', () => {
+    const result = capture(() =>
+      upsertSegment(db, ALICE, T_MINE, {
+        startMs: 30_000,
+        endMs: 40_000,
+        label: 'x'.repeat(81),
+      }),
+    );
+    expect([result, countOf(T_MINE)]).toEqual([{ threw: 'ValidationError', status: 400 }, 1]);
+  });
+
+  it('非字符串标签抛 ValidationError（绕过类型的调用方）', () => {
+    const result = capture(() =>
+      upsertSegment(db, ALICE, T_MINE, {
+        startMs: 30_000,
+        endMs: 40_000,
+        label: 42 as unknown as string,
+      }),
+    );
+    expect(result).toEqual({ threw: 'ValidationError', status: 400 });
+  });
+
+  it('POST 带标签时返回并落库', async () => {
+    vi.mocked(getCurrentUser).mockResolvedValue(ALICE);
+    const response = await upsertSegmentRoute(
+      new Request(`http://localhost/api/tasks/${T_MINE}/segments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ startMs: 30_000, endMs: 40_000, label: '有效操作' }),
+      }),
+      { params: Promise.resolve({ id: T_MINE }) },
+    );
+    const body = (await response.json()) as { segment: { label: string } };
+
+    expect([response.status, body.segment.label]).toEqual([200, '有效操作']);
+  });
+
+  it('POST 的标签类型非法时返回 400', async () => {
+    vi.mocked(getCurrentUser).mockResolvedValue(ALICE);
+    const response = await upsertSegmentRoute(
+      new Request(`http://localhost/api/tasks/${T_MINE}/segments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ startMs: 30_000, endMs: 40_000, label: 42 }),
+      }),
+      { params: Promise.resolve({ id: T_MINE }) },
+    );
+    expect(response.status).toBe(400);
   });
 });
 

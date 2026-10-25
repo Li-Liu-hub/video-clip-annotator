@@ -25,14 +25,20 @@ async function readJson(request: Request): Promise<unknown> {
   }
 }
 
-type UpsertBody = { startMs: number; endMs: number; replaces: string | null };
+type UpsertBody = {
+  startMs: number;
+  endMs: number;
+  replaces: string | null;
+  /** 缺省 = 不指定（替换时继承）；null = 显式清空。类型收窄在路由，长度校验在 service。 */
+  label?: string | null;
+};
 
-/** 只取三个字段；其余一律忽略，避免调用方以为它们能生效。 */
+/** 只取允许的字段；其余一律忽略，避免调用方以为它们能生效。 */
 function readUpsertBody(payload: unknown): UpsertBody {
   if (typeof payload !== 'object' || payload === null) {
     throw new ValidationError(INVALID_BODY_MESSAGE);
   }
-  const { startMs, endMs, replaces } = payload as Record<string, unknown>;
+  const { startMs, endMs, replaces, label } = payload as Record<string, unknown>;
   // 类型先收窄：非数字（含字符串 "1200"）在这里就拒，不留给 service 去猜
   if (typeof startMs !== 'number' || typeof endMs !== 'number') {
     throw new ValidationError(INVALID_BODY_MESSAGE);
@@ -40,7 +46,14 @@ function readUpsertBody(payload: unknown): UpsertBody {
   if (replaces !== undefined && replaces !== null && typeof replaces !== 'string') {
     throw new ValidationError(INVALID_BODY_MESSAGE);
   }
-  return { startMs, endMs, replaces: replaces ?? null };
+  // label 允许「没这个键」（继承旧值），但不允许数字/对象这类会让 service 猜的类型
+  if (label !== undefined && label !== null && typeof label !== 'string') {
+    throw new ValidationError(INVALID_BODY_MESSAGE);
+  }
+  const body: UpsertBody = { startMs, endMs, replaces: replaces ?? null };
+  // 只有请求里真的带了 label 才写进 body：区分「没提」与「显式 null」是继承/清空的分界
+  if (label !== undefined) body.label = label;
+  return body;
 }
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {

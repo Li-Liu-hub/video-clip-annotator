@@ -265,14 +265,16 @@ export default function Timeline({
                     minWidth: 2,
                   }}
                   // 冲突期间 ring-bad 顶掉选中环 ring-ink：两者写同一个 ring 属性，
-                  // 并存只会显示其中一个，而冲突是瞬时的、更紧急的反馈
+                  // 并存只会显示其中一个，而冲突是瞬时的、更紧急的反馈。
+                  // z-10：相邻色块是兄弟节点，后绘制的会把前一段的 ring 盖掉半圈 ——
+                  // 描边本身没问题，被盖住是绘制顺序问题。
                   className={`absolute top-1/2 h-[70%] -translate-y-1/2 rounded-[3px] bg-accent-2 transition-colors hover:bg-accent ${
                     readOnly ? 'cursor-default' : 'cursor-grab'
                   } ${
                     conflictedIds.has(segment.id)
-                      ? 'ring-2 ring-bad'
+                      ? 'z-10 ring-2 ring-bad'
                       : segment.id === selectedId
-                        ? 'ring-2 ring-ink'
+                        ? 'z-10 ring-2 ring-ink'
                         : ''
                   }`}
                 >
@@ -303,7 +305,8 @@ export default function Timeline({
               width: `${((draft.endMs - draft.startMs) / durationMs) * 100}%`,
               minWidth: 2,
             }}
-            className={`pointer-events-none absolute top-1/2 h-[70%] -translate-y-1/2 rounded-[3px] border border-dashed bg-accent-2/40 opacity-70 ${draftBorder}`}
+            // z-20：草案必须压在选中块（z-10）之上，否则拖到已选中片段附近时预览被盖住
+            className={`pointer-events-none absolute top-1/2 z-20 h-[70%] -translate-y-1/2 rounded-[3px] border border-dashed bg-accent-2/40 opacity-70 ${draftBorder}`}
           />
         ) : null}
 

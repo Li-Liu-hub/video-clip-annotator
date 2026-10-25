@@ -68,13 +68,14 @@ export function listSegments(db: DB, actor: TenantUser, taskId: string): Segment
 /**
  * 新增或替换一个片段。
  * replaces 为原片段 id 时执行「先删后插」，否则纯新增。
+ * label 三态：省略 = 替换时继承旧值 / 新建为 null；字符串 = 落库；null = 显式清空。
  * 任何校验失败都抛错，不做部分写入。
  */
 export function upsertSegment(
   db: DB,
   actor: TenantUser,
   taskId: string,
-  input: { startMs: number; endMs: number; replaces?: string | null },
+  input: { startMs: number; endMs: number; replaces?: string | null; label?: string | null },
 ): SegmentRow;
 
 export function deleteSegment(db: DB, actor: TenantUser, taskId: string, segmentId: string): void;
@@ -84,9 +85,12 @@ export function deleteSegment(db: DB, actor: TenantUser, taskId: string, segment
 
 ```
 GET    /api/tasks/:id/segments          → { ok, segments: SegmentRow[] }
-POST   /api/tasks/:id/segments          body { startMs, endMs, replaces? } → { ok, segment }
+POST   /api/tasks/:id/segments          body { startMs, endMs, replaces?, label? } → { ok, segment }
 DELETE /api/tasks/:id/segments/:segId   → { ok }
 ```
+
+`label` 可省略：拖动/调整不传它，服务端继承被替换项的标签；撤销回放则必须显式传
+（`lib/segment-payload` 的 `upsertPayloadOf` 把 label 设为必填，漏传编译失败）。
 
 错误映射：
 
@@ -230,6 +234,8 @@ async function handleCommit(draft: Segment, replacedIndex: number | null) {
 | 触发器异常直接冒泡 | 客户端收 500，前端无法区分「重叠」与「服务器炸了」 |
 | 失败时也更新本地数组 | 界面显示成功，刷新后消失 |
 | 忘记删 `?demo=1` | 演示数据永久留在代码里 |
+| 替换时把 `label` 写死成 null | 拖一下片段，标签就没了（P1 的原始缺陷） |
+| 用 `input.label ?? target.label` | 显式 `null` 被当成「没传」，清空失效 |
 
 ---
 

@@ -109,7 +109,7 @@ tasks 1 ── n ledger_entries  （提交 +N，退回 −N，都指向对应的
 ```bash
 npx tsc --noEmit          # 类型
 npx eslint .              # 全仓，含分层依赖规则
-npm test                  # 832 例；pretest 另跑规范扫描 + 临时库不变量检查
+npm test                  # 850 例；pretest 另跑规范扫描 + 临时库不变量检查
 npm run build             # 生产构建
 ```
 
@@ -140,16 +140,17 @@ npm run invariant:check -- --temp # 一次性内存库：种子 + 完整业务�
 未修项以 [`docs/steps/00-INDEX.md`](docs/steps/00-INDEX.md) 的「未修的已知项」表为准，
 这里只列**自动化替代不了**的部分：
 
-1. **撤销方向**（H1）。栈操作是纯函数、测得很扎实，但「Workbench 的调用点传的是
-   before 还是 after」不在测试范围内 —— 实测把它改错后 510 例全绿（本轮 832 例同样覆盖不到）。
-   手工验：拖一段 → `Ctrl+Z` → 必须回到原位；若停在原地或退回两步前，方向就反了。
-2. **并发删除守卫**（O1c）。可验证的只有结构保证（ref 跨渲染稳定 + 入口守卫）。
-   手工验：DevTools 限速 Slow 3G，一指拖片段、另一指点头删，Network 里
-   **DELETE 必须只有 1 次、POST 必须 0 次**。不能看「界面有没有报错」——
-   404 之后本地数组本来就不变。
-3. **相邻色块的选中描边**（H5）。`ring-2` 会被后绘制的兄弟色块盖掉半圈，需要人眼目视。
+1. **撤销方向不在门禁里**（H1）。栈操作是纯函数、测得很扎实，但「Workbench 的调用点传的是
+   before 还是 after」不在测试范围内 —— 实测把它改错后 510 例全绿（850 例同样覆盖不到）。
+   已用一次性 Playwright 脚本验过：拖拽创建、删除两条路径都回到原区间。
+   但脚本不在 `npm test` 里，改 Workbench 不会自动发现回归。
+2. **并发删除守卫**（O1c）。已用脚本把 DELETE 延迟 2 秒拉长在途窗口：
+   单指针在窗口内拖空白处 → `POST 0` 次、`DELETE 1` 次、出现「正在删除片段」；
+   删除完成后重试 → `POST 1` 次。同样不在门禁里，属于「跑过」而非「每次都会跑」。
+3. **相邻色块的选中描边**（H5）。已修：选中/冲突块 `z-10`、草案 `z-20`；
+   脚本断言 `z-index` 并截图（[`docs/ring-selected.png`](docs/ring-selected.png)）。
 4. **端到端的手感与视觉**。`e2e-check` 验的是 HTTP 与库，验不了拖拽是否跟手、
-   时间轴刻度是否对齐、退回提示是否在视线内。演示路径第 1–7 步需要人走一遍。
+   时间轴刻度是否对齐、退回提示是否在视线内。统计页的视觉这一轮仍没人看过。
 
 另有两处已知的工程性取舍：
 
@@ -158,6 +159,6 @@ npm run invariant:check -- --temp # 一次性内存库：种子 + 完整业务�
   该处已有 RULES 授权的 `rule-exception`（批准人 CLAUDE），故保留。新增 disable 前请先读这一行。
 - **本项目没有组件测试设施**（没有 jsdom / Testing Library）。交互逻辑被拆成
   纯函数（`history` / `segment-drag` / `segment-selection` / `segment-interval`）后用单测覆盖，
-  剩下的「组件里接线」只能靠上面 4 条人工验收。
+  剩下的「组件里接线」靠两轮一次性 Playwright 脚本 + 第 4 条人眼验收。
 
 本轮的验收记录与变异验证明细见 [`docs/REPORT.md`](docs/REPORT.md)。

@@ -14,14 +14,14 @@ import {
   redo,
   undo,
   type History,
-  type Interval,
+  type HistoryInterval,
 } from '@/lib/history';
 import type { SegmentRow } from '@/lib/services/segment-service';
 
 const EMPTY: History = { past: [], future: [] };
 
-function at(startMs: number, endMs: number): Interval {
-  return { startMs, endMs };
+function at(startMs: number, endMs: number, label: string | null = null): HistoryInterval {
+  return { startMs, endMs, label };
 }
 
 /** 服务端行：diff 的 current 必须带 id（DELETE 只认 id）。 */
@@ -143,8 +143,8 @@ describe('redo / canUndo / canRedo', () => {
   });
 });
 
-describe('历史栈只存区间', () => {
-  it('栈里的快照不含 id 与 label —— 否则撤销一次换 id 后，下一层全失效', () => {
+describe('历史栈只存区间与标签，不存 id', () => {
+  it('快照不含 id —— 否则撤销一次换 id 后，下一层全失效', () => {
     // E4 的替换是「先删后插」，id 会变。栈里一旦带了 id，
     // 撤销一次之后，栈中其余各层的 id 全部指向不存在的行。
     const rows = [
@@ -153,6 +153,28 @@ describe('历史栈只存区间', () => {
     ];
     const history = pushHistory({ past: [], future: [] }, rows);
 
-    expect(Object.keys(history.past[0][0])).toEqual(['startMs', 'endMs']);
+    expect(history.past[0][0]).not.toHaveProperty('id');
+  });
+
+  it('快照保留 label：删除后撤销要靠它把标签带回去', () => {
+    // 被删的那一行已经不存在，没有「被替换项」可以继承 —— 标签只能存在栈里
+    const rows = [{ id: 'c000000000000001', startMs: 0, endMs: 1_000, label: '有效操作' }];
+    const history = pushHistory({ past: [], future: [] }, rows);
+
+    expect(history.past[0][0].label).toBe('有效操作');
+  });
+});
+
+describe('diffIntervals 带回标签', () => {
+  it('目标里新出现的段，toCreate 带着它的 label', () => {
+    const { toCreate } = diffIntervals([], [at(0, 1_000, '有效操作')]);
+    expect(toCreate).toEqual([at(0, 1_000, '有效操作')]);
+  });
+
+  it('删除后撤销：restore 里的标签可用于重建', () => {
+    // 先有一段带标签的，删除后撤销
+    const history = pushHistory(EMPTY, [at(0, 1_000, '有效操作')]);
+    const step = undo(history, []);
+    expect(step.restore).toEqual([at(0, 1_000, '有效操作')]);
   });
 });

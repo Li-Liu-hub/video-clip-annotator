@@ -30,7 +30,19 @@ export type UpsertSegmentInput = {
   endMs: number;
   /** 原片段 id：给了就是替换，没给就是纯新增。 */
   replaces?: string | null;
+  /**
+   * 标签三态，必须区分：
+   * - 省略（undefined）→ 替换时继承被替换项，新建为 null（拖动/调整走这条）；
+   * - 字符串 → 落库（trim、空串归一成 null、上限见 MAX_SEGMENT_LABEL_LENGTH）；
+   * - 显式 null → 清空（撤销回放历史里本就没有标签的段走这条）。
+   *
+   * 用 `??` 合并会抹掉「显式 null」，把清空变成继承。
+   */
+  label?: string | null;
 };
+
+/** 标签只用于展示，限长是为了不让一段文本把列表与审计撑爆。 */
+export const MAX_SEGMENT_LABEL_LENGTH = 80;
 
 const TASK_NOT_FOUND_MESSAGE = '任务不存在';
 const TASK_STATE_CONFLICT_MESSAGE = '任务当前状态不允许修改片段';
@@ -45,6 +57,28 @@ function toSegmentRow(record: SegmentRecord): SegmentRow {
     endMs: record.end_ms,
     label: record.label,
   };
+}
+
+/**
+ * 标签三态的落点。
+ *
+ * inherited 只在「调用方没提 label」时生效：拖动替换不该改标签，
+ * 而撤销回放必须能显式给 null（历史里那一段本来就没有标签）。
+ */
+function resolveLabel(
+  input: string | null | undefined,
+  inherited: string | null,
+): string | null {
+  if (input === undefined) return inherited;
+  if (input === null) return null;
+  // TS 已收窄成 string，这一句是给绕过类型的调用方（纯 JS / 直接调 service 的脚本）兜底
+  if (typeof input !== 'string') throw new ValidationError('标签必须是文本');
+
+  const trimmed = input.trim();
+  if (trimmed.length > MAX_SEGMENT_LABEL_LENGTH) {
+    throw new ValidationError(`标签不能超过 ${MAX_SEGMENT_LABEL_LENGTH} 个字符`);
+  }
+  return trimmed.length === 0 ? null : trimmed;
 }
 
 /** 把 normalizeSegments 的问题码翻成用户看得懂的话。不含表名、SQL 与下标。 */
@@ -186,7 +220,8 @@ export function upsertSegment(
       id: newId(),
       startMs: input.startMs,
       endMs: input.endMs,
-      label: null,
+      // 替换时没提 label 就继承旧值：拖动/调整不该顺手把标签抹掉
+      label: resolveLabel(input.label, target?.label ?? null),
     };
     // 插入若被触发器拒绝（并发写入抢在前面），异常穿出 writeTx，上面那次删除一并回滚
     insertSegment(db, {

@@ -17,9 +17,9 @@ import {
   redo as redoHistory,
   undo as undoHistory,
   type History,
-  type Interval,
+  type HistoryInterval,
 } from '@/lib/history';
-import { readSegmentList } from '@/lib/segment-payload';
+import { readSegmentList, upsertPayloadOf } from '@/lib/segment-payload';
 import type { SegmentRow } from '@/lib/services/segment-service';
 
 type Args = {
@@ -36,7 +36,7 @@ type Args = {
 
 type Result = {
   /** 每次写操作成功、状态已更新后调用，传入操作前的区间集合 */
-  record: (before: readonly Interval[]) => void;
+  record: (before: readonly HistoryInterval[]) => void;
   undo: () => void;
   redo: () => void;
   canUndo: boolean;
@@ -75,7 +75,7 @@ export function useHistory({ taskId, readOnly, getSegments, applySegments, onFai
   }
 
   const record = useCallback(
-    (before: readonly Interval[]) => {
+    (before: readonly HistoryInterval[]) => {
       writeHistory(pushHistory(historyRef.current, before));
     },
     [writeHistory],
@@ -88,7 +88,7 @@ export function useHistory({ taskId, readOnly, getSegments, applySegments, onFai
    * 先建必撞触发器报重叠 —— 只有「先删完、再建」这个固定顺序是对的。
    * 中途失败就停：半截改动已经落库，此时若还推进栈，下次撤销会退回一个从未存在过的状态。
    */
-  async function applyTarget(target: readonly Interval[]): Promise<boolean> {
+  async function applyTarget(target: readonly HistoryInterval[]): Promise<boolean> {
     const { toDelete, toCreate } = diffIntervals(getSegments(), target);
 
     for (const id of toDelete) {
@@ -103,7 +103,8 @@ export function useHistory({ taskId, readOnly, getSegments, applySegments, onFai
       const response = await fetch(SEGMENTS_URL(taskId), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ startMs: interval.startMs, endMs: interval.endMs, replaces: null }),
+        // 用统一载荷：label 必填，漏传在编译期就报错（历史里的标签必须放回去）
+        body: JSON.stringify(upsertPayloadOf(interval)),
       });
       if (!response.ok) {
         onFailure(await readJson(response));
@@ -150,7 +151,7 @@ export function useHistory({ taskId, readOnly, getSegments, applySegments, onFai
     // 回退是串行的：一次回退可能产生多个请求，中途再插一次回退会让后者的 diff 基于过期数组
     if (busyRef.current) return;
 
-    const current = getSegments().map(({ startMs, endMs }) => ({ startMs, endMs }));
+    const current = getSegments().map(({ startMs, endMs, label }) => ({ startMs, endMs, label }));
     const step =
       direction === 'undo' ? undoHistory(historyRef.current, current) : redoHistory(historyRef.current, current);
     // 栈空：不发请求、不提示、不进 busy —— 无事可做不是错误
