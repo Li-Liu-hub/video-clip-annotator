@@ -588,7 +588,9 @@ describe('冲正归原提交日，不是退回当天', () => {
 
     // 原提交日：净额 0，但两笔都在
     const onSubmitDay = listStats(db, ALICE, { dimension: 'day', from: '2026-10-20', to: '2026-10-20' });
-    expect({ totalMs: onSubmitDay.rows[0]?.totalMs, entryCount: onSubmitDay.rows[0]?.entryCount }).toEqual({
+    // StatsResult 是联合类型，取行前先按 dimension 窄化；维度分派错了会落到空数组，断言照样红
+    const onSubmitDayRows = onSubmitDay.dimension === 'day' ? onSubmitDay.rows : [];
+    expect({ totalMs: onSubmitDayRows[0]?.totalMs, entryCount: onSubmitDayRows[0]?.entryCount }).toEqual({
       totalMs: 0,
       entryCount: 2,
     });

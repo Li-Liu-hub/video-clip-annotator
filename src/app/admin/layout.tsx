@@ -7,11 +7,11 @@
 import Link from 'next/link';
 import { requireAdmin } from '@/lib/server/guards';
 
-/** 视频与任务页已实现；统计、审计仍用 null 表示「不跳转」。 */
+/** 视频与任务页已实现；审计仍用 null 表示「不跳转」。统计页在 /admin 之外 —— 管理员与标注员共用同一个页面。 */
 const NAV = [
   { href: '/admin/videos', label: '视频' },
   { href: '/admin/tasks', label: '任务' },
-  { href: null, label: '统计' },
+  { href: '/stats', label: '统计' },
   { href: null, label: '审计' },
 ] as const;
 

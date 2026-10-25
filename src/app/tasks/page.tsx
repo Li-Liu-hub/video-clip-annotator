@@ -6,6 +6,7 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { getDb } from '@/lib/server/db';
+import Link from 'next/link';
 import { requireUser } from '@/lib/server/guards';
 import { PAGE_SIZE, listTasks } from '@/lib/services/task-service';
 import TaskList, { TaskPager } from './TaskList';
@@ -27,7 +28,14 @@ export default async function TasksPage({ searchParams }: Props) {
       <header className="mb-6">
         <div className="flex items-baseline justify-between gap-4">
           <h1 className="text-[20px] font-medium tracking-tight text-ink">我的任务</h1>
-          <span className="tnum text-[11.5px] text-ink-faint">共 {result.total} 条</span>
+          <div className="flex items-baseline gap-3">
+            {/* 统计页的入口。标注员打开只看到自己的量 —— 页面本身支持，
+                但没有链接的话那页只有知道 URL 的人能进 */}
+            <Link className="text-[11.5px] text-ink-faint transition-colors hover:text-ink" href="/stats">
+              我的工作量
+            </Link>
+            <span className="tnum text-[11.5px] text-ink-faint">共 {result.total} 条</span>
+          </div>
         </div>
         <p className="mt-1.5 text-[12.5px] leading-relaxed text-ink-dim">
           待领取的任务向本空间开放；领取后只有你自己看得到。
