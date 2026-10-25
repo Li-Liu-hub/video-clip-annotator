@@ -107,8 +107,8 @@ const mutations = [
   },
   {
     name: '快照 total_ms 与内容不符',
-    checker: 'structure',
-    expect: '提交的 total_ms 等于快照内各段之和',
+    checker: 'business',
+    expect: '[snapshot-total]',
     apply(db) {
       const row = db.prepare('SELECT id, total_ms FROM submissions LIMIT 1').get();
       db.prepare('UPDATE submissions SET total_ms = ? WHERE id = ?').run(row.total_ms + 1, row.id);
@@ -125,8 +125,8 @@ const mutations = [
   },
   {
     name: '已提交任务缺少提交记录',
-    checker: 'structure',
-    expect: '已提交任务恰有一个未被取代的提交',
+    checker: 'business',
+    expect: '[snapshot-unique]',
     apply(db) {
       // 把提交标记为已被取代，制造「submitted 但无有效提交」
       const row = db

@@ -47,7 +47,7 @@
 **不需要两只指针**：把 DELETE 的响应人为拖住，再用同一只鼠标拖另一段 ——
 在途窗口被拉长到 2 秒，单指针就能稳定命中。
 
-**做法**（一次性 Playwright 脚本，不进 npm test）：
+**做法**（浏览器门禁脚本 `scripts/browser/browser-polish.py`，`npm run test:browser` 每次跑）：
 
 1. 路由拦截 `DELETE /api/tasks/*/segments/*`，`await 2s` 后再放行；
 2. 点第一段的删除（DELETE 挂起，`deletingId` 已置位）；
@@ -97,7 +97,7 @@
 - [x] `upsertPayloadOf` 产出含 label 的载荷（漏传会编译失败）
 - [x] 全量 850 例全绿（P1 新增 18 例；O4 之后为 853）
 
-**浏览器**（`.workbuddy/browser-polish.py`，20/20）
+**浏览器**（`scripts/browser/browser-polish.py`，20/20）
 
 - [x] 删除带 label 的片段 → Ctrl+Z → 列表重新出现「有效操作」
 - [x] 拖动带 label 的片段 → 松手后 label 仍在

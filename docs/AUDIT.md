@@ -178,6 +178,7 @@ $ grep -rl "admin123" .next/static
 （`review-service` 的 reopen 必须用 owned，不能用 readable —— 目标状态就是 rejected）；
 上传上限与 MIME 白名单收敛到 `lib/video-limits`；`newId()` 落到 `lib/db/id.ts`（7 个调用点）；
 `db:check` 从 14 条降到 10 条（删掉 4 条与 `invariants.ts` 真重叠的），
+Q3 又删掉 2 条快照规则（自洽、唯一），现在是 8 条纯结构/格式检查；
 `invariant:check` 升到 7 条（快照唯一改成同时抓 count=0 与 >1，另加 O3 的 `snapshot-total`）；
 死代码删除，`WORKBENCH_STATUS_ID` 改为 import。
 「可改」的 12 组只做了不改变行为的合并，其余留在原处 —— 它们不会静默分叉。

@@ -1,0 +1,16 @@
+#!/bin/sh
+# 提交前门禁：npm test（单测 + 组件测试 + audit + 临时库不变量）。
+#
+# 为什么不在这里跑浏览器：npm run verify 需要先 build、还要 Python Playwright，
+# 每次 push 等 90 秒以上会让人开始找绕过办法。浏览器门禁放在 verify / CI。
+# 全量：npm run build && npm run verify
+# 紧急跳过：SKIP_VERIFY=1 git push
+set -e
+
+if [ "$SKIP_VERIFY" = "1" ]; then
+  echo "[pre-push] SKIP_VERIFY=1，跳过门禁"
+  exit 0
+fi
+
+echo "[pre-push] npm test（含组件测试）；全量请用 npm run verify"
+npm test

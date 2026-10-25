@@ -63,8 +63,8 @@ requireWritableTask(db, actor, taskId) → requireOwnedTask + status === 'claime
 跨表租户一致              → 已在 invariants.ts，删旧套
 ```
 
-`db:check` 保留 10 条结构检查，新增一行「业务不变量见 invariant:check」。
-**两套都有存在理由，但重叠的那 4 条只能有一份。**
+`db:check` 保留结构检查（Q3 后 8 条），新增一行「业务不变量见 invariant:check」。
+**两套都有存在理由，但重叠的条目只能有一份 —— Q3 已把最后两条快照规则也删掉。**
 
 `verify-checker.mjs` 的变异验证要指向**新的** `invariants.ts`（它现在只验旧套）。
 

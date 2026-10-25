@@ -120,8 +120,28 @@ tasks 1 ── n ledger_entries  （提交 +N，退回 −N，都指向对应的
 ```bash
 npx tsc --noEmit          # 类型
 npx eslint .              # 全仓，含分层依赖规则
-npm test                  # 860 例；pretest 另跑规范扫描 + 临时库不变量检查
+npm test                  # 867 例；pretest 另跑规范扫描 + 临时库不变量检查
 npm run build             # 生产构建
+npm run verify            # 全量门禁：npm test + test:browser（59 项，自动起停服务）
+```
+
+`test:browser` 需要 Python 3 与 Playwright：
+
+```bash
+pip install playwright
+python -m playwright install chromium
+npm run test:browser      # 三段脚本，每段独立种子库与服务
+```
+
+默认解释器依次试 `python` / `python3` / `py`；都不行时用 `PYTHON=/path/to/python` 指定。
+CI 配置在 `docs/ci/verify.yml`：推送用的 token 只有 `repo` scope，GitHub 拒绝写
+`.github/workflows/`；换一个有 `workflow` scope 的 token（或在网页上新建）即可启用，
+步骤见 [`docs/ci/README.md`](docs/ci/README.md)。
+
+本机有 pre-push 钩子，push 前跑 `npm test`。首次克隆后启用一次：
+
+```bash
+git config core.hooksPath .githooks
 ```
 
 全链路（需要服务已启动；脚本走真实 HTTP，会自己建一条任务，不依赖种子的 pending）：
@@ -139,37 +159,32 @@ node scripts/e2e-check.mjs
 npm run invariant:check           # 读 data/app.db，有违反则 exit 1
 npm run invariant:check -- --temp # 一次性内存库：种子 + 完整业务链路后检查
 ```
-另有两个历史入口仍在用（与 `invariant:check` 职责重叠但未合并）：
-`npm run db:check`（10 条结构检查）与 `npm run db:verify-checker`（检查器的变异验证）。
-新代码请用 `invariant:check`；旧的两个保留是因为它们的输出断言还没有跟着改。
-
+`db:check`（8 条结构 / 格式检查）与 `db:verify-checker`（9 组变异）保留为独立入口。
+快照的两条规则（自洽、唯一）已合并到 `invariant:check`，全仓只有一处实现。
 
 `--temp` 不碰 `data/app.db`，所以它能挂在 `pretest` 里；真实库那一条只能手跑。
 
 ## 已知限制
 
-未修项以 [`docs/steps/00-INDEX.md`](docs/steps/00-INDEX.md) 的「未修的已知项」表为准，
-这里只列**自动化替代不了**的部分：
+以 [`docs/steps/00-INDEX.md`](docs/steps/00-INDEX.md) 的「已知项处理记录」为准，
+**现在没有待修项**。剩下的是自动化的边界：
 
-1. **撤销方向不在门禁里**（H1）。栈操作是纯函数、测得很扎实，但「Workbench 的调用点传的是
-   before 还是 after」不在测试范围内 —— 实测把它改错后 510 例全绿（860 例同样覆盖不到）。
-   已用一次性 Playwright 脚本验过：拖拽创建、删除两条路径都回到原区间。
-   但脚本不在 `npm test` 里，改 Workbench 不会自动发现回归。
-2. **并发删除守卫**（O1c）。已用脚本把 DELETE 延迟 2 秒拉长在途窗口：
-   单指针在窗口内拖空白处 → `POST 0` 次、`DELETE 1` 次、出现「正在删除片段」；
-   删除完成后重试 → `POST 1` 次。同样不在门禁里，属于「跑过」而非「每次都会跑」。
-3. **相邻色块的选中描边**（H5）。已修：选中/冲突块 `z-10`、草案 `z-20`；
-   脚本断言 `z-index` 并截图（[`docs/ring-selected.png`](docs/ring-selected.png)）。
-4. **端到端的手感与视觉**。`e2e-check` 验的是 HTTP 与库，验不了拖拽是否跟手、
-   时间轴刻度是否对齐、退回提示是否在视线内。统计页的视觉这一轮仍没人看过。
+1. **`npm test` 不含浏览器。** 撤销方向、删除守卫、焦点、快捷键、太短提示已进组件测试；
+   拖拽几何、视频 206、真实焦点只在 `npm run test:browser` 与全量 `verify` 里。
+   只跑 `npm test` 不会发现这几类回归 —— 提交前跑 `npm run verify`。
+2. **jsdom 不实现布局与媒体。** 组件测试覆盖的是接线，不是像素；相邻描边、拖拽吸附
+   仍需浏览器门禁。这是分层，不是缺口。
+3. **统计页的视觉没人看过。** 数据路径由全链路与不变量验过；配色、密度这类判断没有自动化。
+4. **CI 配置尚未启用。** 推送 token 缺 `workflow` scope，`.github/workflows/` 写不进去；
+   配置放在 `docs/ci/verify.yml`，启用步骤见 `docs/ci/README.md`。本机 push 前有
+   pre-push 钩子跑 `npm test`；浏览器门禁需手动 `npm run verify`。
 
-另有两处已知的工程性取舍：
+另有两处工程取舍：
 
 - **唯一的 `eslint-disable`**：`src/lib/services/audit-service.ts:59`。
   审计旁路失败必须留一条 error 日志，而 `no-console` 是全仓规则；
   该处已有 RULES 授权的 `rule-exception`（批准人 CLAUDE），故保留。新增 disable 前请先读这一行。
-- **本项目没有组件测试设施**（没有 jsdom / Testing Library）。交互逻辑被拆成
-  纯函数（`history` / `segment-drag` / `segment-selection` / `segment-interval`）后用单测覆盖，
-  剩下的「组件里接线」靠三轮一次性 Playwright 脚本 + 第 4 条人眼验收。
+- **测试分三层**：纯函数跑 node（最快）；组件接线跑 jsdom（`tests/*.dom.test.tsx`）；
+  浏览器行为跑 Playwright（`scripts/browser/`）。`npm test` 只跑前两层，`verify` 跑全量。
 
 本轮的验收记录与变异验证明细见 [`docs/REPORT.md`](docs/REPORT.md)。

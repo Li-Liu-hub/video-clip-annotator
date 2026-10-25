@@ -1,8 +1,14 @@
 /** Vitest 配置：测试跑在 Node 环境，`@/` 与 tsconfig 的路径别名保持一致。 */
 import path from 'node:path';
+import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
+  /*
+   * tsconfig 的 jsx 是 "preserve"（Next 自己转）。Vitest 侧用 plugin-react 接管 .tsx，
+   * 否则 JSX 会原样进转换器，报 "Unexpected JSX expression"。
+   */
+  plugins: [react()],
   // 与 tsconfig.json 的 paths 对齐，否则测试里的 @/lib/* 解析不到
   resolve: {
     alias: {
@@ -17,7 +23,7 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    include: ['tests/**/*.test.ts'],
+    include: ['tests/**/*.test.{ts,tsx}'],
     /*
      * 41 个测试文件各起一个 worker；默认并发会把 16 核全部占满，
      * 冷启动时模块装载被拖慢，出现过一次「逻辑没问题但整批超时」的假红（8 例）。

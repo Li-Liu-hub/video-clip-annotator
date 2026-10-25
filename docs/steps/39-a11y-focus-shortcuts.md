@@ -91,7 +91,7 @@ WCAG 2.1.4 要求字符键快捷键至少满足一条：可关闭 / 可重映射
 - [x] `TOO_SHORT_HINT`：含「太短」「入点还在」与 0.1 秒（2 例）
 - [x] 变异：解析恒返回 true → 恰好 2 例红
 
-**浏览器**（`.workbuddy/browser-a11y.py`）
+**浏览器**（`scripts/browser/browser-a11y.py`，`npm run test:browser`）
 
 - [x] 关闭开关后按空格视频不播放、按 I 不出现入点竖线；刷新后仍是关闭
 - [x] 重新开启后空格能播放

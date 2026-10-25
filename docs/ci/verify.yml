@@ -1,0 +1,44 @@
+# 放在 docs/ci/ 而不是 .github/workflows/ 的原因：
+# 本机推送用的 PAT 只有 repo scope，GitHub 会拒绝创建/更新 .github/workflows/ 下的文件。
+# 启用方法见同目录 README.md。
+
+name: verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      # 浏览器脚本由 Python Playwright 驱动；CI 里 python3 就是装了包的那个
+      PYTHON: python3
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: 安装 Node 依赖
+        run: npm ci
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 安装 Playwright（Python）
+        run: |
+          pip install playwright
+          python -m playwright install --with-deps chromium
+
+      - name: 构建
+        run: npm run build
+
+      # verify = npm test（单测 + audit + eslint + 临时库不变量）
+      #        + test:browser（三段浏览器脚本，每段独立种子库与服务）
+      - name: 全量门禁
+        run: npm run verify

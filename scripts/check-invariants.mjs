@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 结构检查器：schema 该保证、但 SQLite 表达不了的那 10 条。
+ * 结构检查器：schema 该保证、但 SQLite 表达不了的那 8 条。
  *
  * 与其他检查手段的分工：
  *   - 数据库约束：防「写入时违反」，但防不了已经写进去的脏数据
@@ -59,43 +59,14 @@ add('每条账本都有对应的提交记录', () =>
      WHERE s.id IS NULL LIMIT 5`),
 );
 
-// ④ 快照内容与 total_ms 自洽
-add('提交的 total_ms 等于快照内各段之和', () => {
-  const rows = db.prepare('SELECT id, total_ms, segments_json FROM submissions').all();
-  const bad = [];
-  for (const r of rows) {
-    let segs;
-    try {
-      segs = JSON.parse(r.segments_json);
-    } catch {
-      bad.push({ id: r.id, reason: 'JSON 无法解析' });
-      continue;
-    }
-    const sum = segs.reduce((acc, s) => acc + (s.endMs - s.startMs), 0);
-    if (sum !== r.total_ms) bad.push({ id: r.id, expect: sum, actual: r.total_ms });
-    if (segs.length === 0) bad.push({ id: r.id, reason: '空快照' });
-  }
-  return bad.slice(0, 5);
-});
-
-// ⑤ 已提交任务恰有一个有效提交
+// 快照自洽与唯一：唯一实现在 invariant:check（snapshot-total / snapshot-unique）。
 //
-// 这条与 invariant:check 的 snapshot-unique 重叠（后者也判 submitted 必须恰好一条）。
-// 保留两份是有意的：db:check 是独立脚本，不 import TypeScript 模块 ——
-// 让它委托新套就得复制一份 TS 装载桥，那是新增第二处重复，比重叠更糟。
-// 代价是改口径时要同时改两处。改这里请一并看 src/lib/invariants.ts 的
-// snapshotUniqueViolations，两边的判定必须一致。
-add('已提交任务恰有一个未被取代的提交', () =>
-  violations(`
-    SELECT t.id, COUNT(s.id) AS n
-      FROM tasks t LEFT JOIN submissions s
-        ON s.task_id = t.id AND s.superseded_by IS NULL
-     WHERE t.status = 'submitted'
-     GROUP BY t.id HAVING n <> 1
-     LIMIT 5`),
-);
+// 这两条曾经在这里各写一份，靠注释约束「改口径要同时改两处」——
+// 实际结果是变异只喂给其中一套，另一套删掉也不会变红。
+// 现在 db:verify-checker 的两个快照变异都指向 business 检查器，
+// 结构检查器不再重复实现；它能抓的仍是「结构与格式」这一类。
 
-// ⑥ 角色与租户约束
+// ④ 角色与租户约束
 add('管理员不属于租户、标注员必须有租户', () =>
   violations(`
     SELECT id, role, tenant_id FROM users
@@ -112,7 +83,7 @@ add('每个标注员独占一个租户', () =>
      GROUP BY tenant_id HAVING n > 1 LIMIT 5`),
 );
 
-// ⑦ 状态与领取人一致
+// ⑤ 状态与领取人一致
 add('状态与领取人字段同步', () =>
   violations(`
     SELECT id, status, claimed_by FROM tasks
@@ -121,7 +92,7 @@ add('状态与领取人字段同步', () =>
      LIMIT 5`),
 );
 
-// ⑧ 日期格式与符号一致
+// ⑥ 日期格式与符号一致
 add('ledger 的 entry_date 格式合法', () =>
   violations(`
     SELECT id, entry_date FROM ledger_entries

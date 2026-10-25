@@ -7,12 +7,13 @@
 > **文档状态：33 / 33**
 >
 > 已完成 A1–I3 共 33 个功能点（另加计划外的 E8a，M4 之后的加固 O1–O4，
-> 以及收尾 P1–P7），860 例自动化测试 + 53 项全链路验收（`scripts/e2e-check.mjs`）
-> + 五组七条不变量检查（`scripts/invariant-check.mjs`）。验收记录见 [`docs/REPORT.md`](../REPORT.md)。
+> 收尾 P1–P7，以及工程门禁 Q1–Q3），867 例自动化测试 + 59 项浏览器验收
+> + 53 项全链路验收（`scripts/e2e-check.mjs`）+ 五组七条不变量检查。
+> 全量门禁是 `npm run verify`（单测 + 浏览器），CI 每次 push 都跑。验收记录见
+> [`docs/REPORT.md`](../REPORT.md)。
 >
-> 已知未修项见文末「未修的已知项」表 —— 那张表是账本，不是待办清单：
-> 每一条都写明了「为什么不修」或「什么时候该修」。其中标注为「人工」的条目，
-> 意思是需要人在浏览器里看一眼，自动化替代不了。
+> 已知项的处理记录见文末「已知项处理记录」表 —— 那张表是账本，不是待办清单：
+> 每条都带证据（用例、变异或浏览器断言）。当前没有待修项。
 
 ---
 
@@ -159,23 +160,33 @@ M4 之后仍挂在「未修」表里的三条。共同点是：都不是功能�
 | P6  | 删除后的焦点策略（下一段 → 上一段 → 空态）               | 同上                                         | G5  | 1h  |
 | P7  | O 键太短给提示（入点保留）                           | 同上                                         | M6  | 0.3h |
 
+## Q · 工程门禁
+
+不是功能点，是把「验证手段」本身补成可重复的。做完这组，REPORT 里的工程性风险不再是「靠人记得」。
+
+| #   | 事项                                      | 文档                                        | 依赖 | 预计  |
+| --- | --------------------------------------- | ----------------------------------------- | -- | --- |
+| Q1  | 组件测试（jsdom + Testing Library），覆盖撤销/守卫/焦点/快捷键 | [40-engineering-gates](40-engineering-gates.md) | —  | 2h  |
+| Q2  | 浏览器脚本入库 + `test:browser` + CI `verify` | 同上                                        | —  | 1.5h |
+| Q3  | 两套检查器去掉重复的快照规则，变异只留一处                | 同上                                        | —  | 0.5h |
+
 ---
 
-## 未修的已知项（Reviewer 记录，别让它们口头消失）
+## 已知项处理记录（Reviewer 记录，别让它们口头消失）
 
 E3–E7 五轮审查中，Reviewer 判为非阻断但明确记录的问题。
-都不影响当前闭环，但改到相关代码时要先看这里：
+这张表是账本，不是待办清单：每条都要有处理结果，「已修」必须带证据（用例名 / 变异 / 浏览器断言）。
 
 | # | 来源 | 问题 | 何时该修 |
 |---|---|---|---|
 | O1a | E5 | ~~`commitSegment` 的 `deleting` 守卫读 state，手势先于删除开始时读到过期值~~ **E6 已修**：守卫改读 `deletingRef`，`if (deleting)` 已从全仓消失（待 O1c 手工确认） | 已修 |
 | O1b | E5 | ~~`deleting` 是布尔、行身份靠 `SegmentList` 的本地 `pendingId` + 修补 effect 兜着~~ **E7 已修**。证据：`git grep pendingId` 全仓 0 命中；`SegmentList` 里 `useState`/`useEffect` 0 处；`deletingId: string \| null` 由 Workbench 唯一持有，键盘与鼠标删除写同一份行身份 | 已修 |
-| O1c | E6 | ~~**并发守卫无自动化覆盖**。项目无组件测试设施，只有结构保证（ref 对象跨渲染稳定 + 入口第一行守卫）。~~ **P2 已自动化**：Playwright 把 DELETE 延迟 2s 拉长在途窗口，单指针在窗口内拖空白处 → POST 0 次、DELETE 1 次、出现「正在删除片段」；删除完成后重试 → POST 1 次。脚本 `.workbuddy/browser-polish.py`（一次性，不在 npm test 里） | 已自动化（脚本） |
+| O1c | E6 | ~~**并发守卫无自动化覆盖**~~ **Q1/Q2 已覆盖**：组件测试挂起 DELETE 后按 I/O → POST 0 次且出现「正在删除片段，请稍候再试」（变异：去掉守卫 → 1 例红）；浏览器门禁用延迟 DELETE 复现完整手势，`npm run test:browser` 每次都跑 | 已修 |
 | O2 | E4 遗留 | ~~`committing` 之间无互斥~~ **E6 已修**：`committingRef` 入口守卫 | 已修 |
 | O4 | E6 | ~~下标当身份~~ **E7 已修**。证据：`replacedIndex` / `movingIndex` / `hitIndex` 全仓 0 命中；`onCommit(draft, replacedId)` 四个环节签名统一；`use-segment-drag` 直接用 `hit.id` 排除自身 | 已修 |
 | G1 | E6 | ~~被守卫吞掉的第二次提交是静默的~~ **E7 已修**：三处守卫各给提示（删除在途 / 提交在途 / 被替换段已删）。`cursor-progress` 的视觉反馈仍可加 | 已修 |
 | O5 | E6 | ~~拖拽中删掉被拖段，松手仍 404~~ **E7 已修**。证据：`segmentsRef` 由 `applySegments` 写透（不是 effect 镜像，无窗口），提交前 `segmentsRef.current.some(id)` 判存在性，不在则提示「这一段已被删除」并放弃 | 已修 |
-| H1 | E8 | **撤销的方向（存操作前 vs 操作后）不在 `npm test` 里**。栈操作是纯函数、测得很扎实，但「调用点传的到底是 before 还是 after」在 Workbench 里，Reviewer 实测把它改成 `record(segmentsRef.current)` 后 **510 例全绿**。**已用 Playwright 验证**：拖拽创建 + Ctrl+Z、删除 + Ctrl+Z 都回到原区间（脚本 `.workbuddy/browser-check.py`，不进仓库） | 已验（脚本）；根治要接组件测试
+| H1 | E8 | ~~**撤销的方向（存操作前 vs 操作后）不在 `npm test` 里**。Reviewer 实测把调用点改成 `record(segmentsRef.current)` 后 510 例全绿。~~ **Q1 已修**：`tests/workbench.dom.test.tsx` 真渲染 Workbench，删一段再 Ctrl+Z，断言 POST 的是被删区间；同一变异现在 **1 例红**。浏览器门禁仍保留这条路径作为双保险 | 已修 |
 | M6 | E7 | ~~O 键遇到「太短」时静默不创建，入点保留~~ **P7 已修**：状态行提示「太短（至少 0.1 秒），入点还在」，写成功 / 删除 / 撤销 / Esc 清掉；文案 `TOO_SHORT_HINT`，下限取 `MIN_SEGMENT_MS` | 已修 |
 | A3 | E7 | ~~单字符快捷键（I / O / Space）在 window 上常驻，没有开关~~ **P4 已修**：页脚 checkbox 可关闭，偏好存 localStorage（只停字符键，Delete / 方向键 / Ctrl+Z 不受影响）；浏览器验证关闭后空格与 I/O 均无效、刷新后仍关闭 | 已修 |
 | K13 | E7 | ~~长按 Delete 会「删一段 → 选中迁移 → 接着删」连锁清空~~ **已修**：`event.repeat` 时直接 return，只认第一次按下 | 已修 |
