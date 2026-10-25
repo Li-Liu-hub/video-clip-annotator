@@ -63,6 +63,10 @@ function decodeFilename(raw: string | null): string {
 /**
  * 从头里取出上传参数。filename 只是展示名，不参与落盘路径；
  * 缺 content-length 时按 0 交给 service，实际字节数由流式写入统计。
+ *
+ * x-duration-ms 仍然必填，但它只是**交叉校验**：真实时长由 service 解析文件得出，
+ * 两者相差超过容差就拒绝（见 video-service 的 DURATION_TOLERANCE_MS）。
+ * 这里只保证它是个能参与比较的正整数，业务判断不放在路由层。
  */
 function readUploadInput(request: Request): UploadInput {
   const durationText = request.headers.get(DURATION_HEADER);

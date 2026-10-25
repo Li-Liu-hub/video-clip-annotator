@@ -23,15 +23,18 @@ node scripts/setup.mjs --reset     # 必须在 dev 之前：建表 + 建管理�
 npm run dev
 ```
 
-打开 <http://localhost:3000>，用 `admin` 和 **setup 输出里那行随机口令** 登录。
-默认库只有一个管理员，口令是随机生成的，只在建库输出里出现一次
-（不写文件、不进本文）：漏抄了就 `node scripts/setup.mjs --reset` 重建，
-或者登录后调用 `POST /api/auth/password` 换掉。
+打开 <http://localhost:3000>，用 `admin` 和 **setup 输出里那行随机口令** 登录
+（默认模式下四个账号共用这一个口令）。默认库的数据是**全量**的 —— 3 个租户、4 个账号、
+17 个任务与历史账本，只有口令是随机的：它只在建库输出里出现一次，不写文件、不进本文。
+漏抄了就 `node scripts/setup.mjs --reset` 重建，或者登录后调用
+`POST /api/auth/password` 换掉。
 
-### 要看演示数据
+数据始终全量、只把口令随机，是 O1 的取舍：安全要防的是「口令已知」，不是「有数据」。
+把数据也一起去掉，`npm run dev` 登录后什么都看不到。
 
-默认库没有租户、任务与视频 —— 交付形态不该带口令已知的账号。
-需要四个演示账号（3 租户 / 17 任务 / 历史账本）时，种子与前端各开一个开关：
+### 要固定口令与一键登录
+
+默认库的口令随机，演示时不好逐个转达。种子与前端各开一个开关，就换成文档里的固定口令：
 
 ```bash
 DEMO_LOGIN=1 node scripts/setup.mjs --reset   # admin + alice|bob|carol
@@ -106,7 +109,7 @@ tasks 1 ── n ledger_entries  （提交 +N，退回 −N，都指向对应的
 ```bash
 npx tsc --noEmit          # 类型
 npx eslint .              # 全仓，含分层依赖规则
-npm test                  # 731 例；pretest 另跑规范扫描 + 临时库不变量检查
+npm test                  # 832 例；pretest 另跑规范扫描 + 临时库不变量检查
 npm run build             # 生产构建
 ```
 
@@ -118,7 +121,7 @@ npm run dev               # 另开一个终端
 node scripts/e2e-check.mjs
 ```
 
-不变量（五组六条规则：账本合计 / 净额非负 / 快照唯一 / 账本与快照同源 /
+不变量（五组七条规则：账本合计 / 净额非负 / 快照唯一 / 快照自洽 / 账本与快照同源 /
 状态与领取人配对 / 租户一致）：
 
 ```bash
@@ -126,7 +129,7 @@ npm run invariant:check           # 读 data/app.db，有违反则 exit 1
 npm run invariant:check -- --temp # 一次性内存库：种子 + 完整业务链路后检查
 ```
 另有两个历史入口仍在用（与 `invariant:check` 职责重叠但未合并）：
-`npm run db:check`（14 条结构检查）与 `npm run db:verify-checker`（检查器的变异验证）。
+`npm run db:check`（10 条结构检查）与 `npm run db:verify-checker`（检查器的变异验证）。
 新代码请用 `invariant:check`；旧的两个保留是因为它们的输出断言还没有跟着改。
 
 
@@ -138,7 +141,7 @@ npm run invariant:check -- --temp # 一次性内存库：种子 + 完整业务�
 这里只列**自动化替代不了**的部分：
 
 1. **撤销方向**（H1）。栈操作是纯函数、测得很扎实，但「Workbench 的调用点传的是
-   before 还是 after」不在测试范围内 —— 实测把它改错后 510 例全绿（本轮 731 例同样覆盖不到）。
+   before 还是 after」不在测试范围内 —— 实测把它改错后 510 例全绿（本轮 832 例同样覆盖不到）。
    手工验：拖一段 → `Ctrl+Z` → 必须回到原位；若停在原地或退回两步前，方向就反了。
 2. **并发删除守卫**（O1c）。可验证的只有结构保证（ref 跨渲染稳定 + 入口守卫）。
    手工验：DevTools 限速 Slow 3G，一指拖片段、另一指点头删，Network 里

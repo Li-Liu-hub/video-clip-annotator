@@ -1,8 +1,9 @@
 /**
- * 视频服务用例：真实写盘、类型与大小校验、跨租户可见性。
+ * 视频服务用例：真实写盘、类型与大小校验、时长以服务端解析为准、跨租户可见性。
  *
  * 落盘目录指向 os.tmpdir()：要验证的是 .part → rename 的真实过程，
  * mock fs 就测不到「有没有残留半个文件」，而那正是此功能点最贵的坑。
+ * 上传的字节必须是真的 mp4：时长改由服务端解析，随便几个字节再也进不了库。
  */
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -12,13 +13,16 @@ import { createDb, type DB } from '@/lib/db';
 import { AppError } from '@/lib/errors';
 import type { SessionUser } from '@/lib/services/auth-service';
 import {
+  DURATION_TOLERANCE_MS,
   listVisibleVideos,
   MAX_VIDEO_BYTES,
+  MAX_VIDEO_DURATION_MS,
   openVideoForRead,
   storeVideo,
   videoFilePath,
   type UploadInput,
 } from '@/lib/services/video-service';
+import { buildMp4 } from './support/mp4-fixture';
 
 const TENANT_A = '1111111111111111';
 const TENANT_B = '2222222222222222';
@@ -28,7 +32,12 @@ const BOB_ID = '5555555555555555';
 const TASK_A = '6666666666666666';
 const TASK_B = '7777777777777777';
 const PASSWORD_HASH = 'scrypt$00$00';
-const SMALL_MP4 = Buffer.from('fake-mp4-bytes-for-test');
+/** 40 秒的最小合法 mp4；服务端解析出来的时长就是 40000 */
+const VALID_MP4 = buildMp4({ durationMs: 40_000 });
+/** 5 小时：超过上传上限 */
+const TOO_LONG_MP4 = buildMp4({ durationMs: 5 * 60 * 60 * 1000 });
+/** 造不出时长：不是 mp4，解析应当失败而不是回落到声明值 */
+const NOT_MP4 = Buffer.from('fake-mp4-bytes-for-test');
 const ORIGINAL_VIDEO_DIR = process.env.VIDEO_DIR;
 
 const ADMIN: SessionUser = {
@@ -99,7 +108,7 @@ function streamOf(bytes: Buffer): ReadableStream<Uint8Array> {
   });
 }
 
-function inputOf(bytes: Buffer = SMALL_MP4, overrides: Partial<UploadInput> = {}): UploadInput {
+function inputOf(bytes: Buffer = VALID_MP4, overrides: Partial<UploadInput> = {}): UploadInput {
   return {
     filename: 'demo.mp4',
     mimeType: 'video/mp4',
@@ -156,16 +165,16 @@ afterEach(() => {
 describe('storeVideo 落盘', () => {
   it('落盘内容与上传的字节完全一致', async () => {
     const video = await storeVideo(db, ADMIN, inputOf());
-    expect(readFileSync(videoFilePath(video))).toEqual(SMALL_MP4);
+    expect(readFileSync(videoFilePath(video))).toEqual(VALID_MP4);
   });
 
   it('落盘文件名使用服务端生成的 id 而非用户给的 filename', async () => {
-    const video = await storeVideo(db, ADMIN, inputOf(SMALL_MP4, { filename: '../../.env' }));
+    const video = await storeVideo(db, ADMIN, inputOf(VALID_MP4, { filename: '../../.env' }));
     expect(path.basename(video.storage_path)).toBe(`${video.id}.mp4`);
   });
 
   it('用户给的 filename 只进数据库做展示', async () => {
-    const video = await storeVideo(db, ADMIN, inputOf(SMALL_MP4, { filename: '../../.env' }));
+    const video = await storeVideo(db, ADMIN, inputOf(VALID_MP4, { filename: '../../.env' }));
     expect(video.filename).toBe('../../.env');
   });
 
@@ -176,7 +185,7 @@ describe('storeVideo 落盘', () => {
 
   it('库里记录的 size_bytes 等于实际字节数', async () => {
     const video = await storeVideo(db, ADMIN, inputOf());
-    expect(video.size_bytes).toBe(SMALL_MP4.length);
+    expect(video.size_bytes).toBe(VALID_MP4.length);
   });
 
   it('落库后的行可按 id 读回', async () => {
@@ -188,20 +197,20 @@ describe('storeVideo 落盘', () => {
 describe('storeVideo 校验', () => {
   it('非 MP4 类型抛 ValidationError', async () => {
     const result = await rejection(
-      storeVideo(db, ADMIN, inputOf(SMALL_MP4, { mimeType: 'text/html' })),
+      storeVideo(db, ADMIN, inputOf(VALID_MP4, { mimeType: 'text/html' })),
     );
     expect(result).toEqual({ name: 'ValidationError', status: 400 });
   });
 
   it('声明大小超过上限抛 413', async () => {
     const result = await rejection(
-      storeVideo(db, ADMIN, inputOf(SMALL_MP4, { sizeBytes: MAX_VIDEO_BYTES + 1 })),
+      storeVideo(db, ADMIN, inputOf(VALID_MP4, { sizeBytes: MAX_VIDEO_BYTES + 1 })),
     );
     expect(result).toEqual({ name: 'PayloadTooLargeError', status: 413 });
   });
 
   it('时长为 0 抛 ValidationError', async () => {
-    const result = await rejection(storeVideo(db, ADMIN, inputOf(SMALL_MP4, { durationMs: 0 })));
+    const result = await rejection(storeVideo(db, ADMIN, inputOf(VALID_MP4, { durationMs: 0 })));
     expect(result).toEqual({ name: 'ValidationError', status: 400 });
   });
 
@@ -212,6 +221,52 @@ describe('storeVideo 校验', () => {
 
   it('空请求体失败后目录里没有残留文件', async () => {
     await rejection(storeVideo(db, ADMIN, inputOf(Buffer.alloc(0))));
+    expect(filesInVideoDir()).toEqual([]);
+  });
+});
+
+describe('storeVideo 用服务端解析的时长', () => {
+  it('声明值与解析值一致时入库，duration_ms 取服务端解析值', async () => {
+    const video = await storeVideo(db, ADMIN, inputOf());
+    expect(video.duration_ms).toBe(40_000);
+  });
+
+  it('声明值偏小但在容差内仍接受，入库的仍是服务端值', async () => {
+    // 声明 38.5 秒、文件 40 秒：差 1.5 秒在 2 秒容差内，落库必须写 40 秒
+    const video = await storeVideo(
+      db,
+      ADMIN,
+      inputOf(VALID_MP4, { durationMs: 40_000 - DURATION_TOLERANCE_MS + 500 }),
+    );
+    expect(video.duration_ms).toBe(40_000);
+  });
+
+  it('声明值与解析值相差超过 2 秒时抛 ValidationError', async () => {
+    const result = await rejection(
+      storeVideo(db, ADMIN, inputOf(VALID_MP4, { durationMs: 40_000 + DURATION_TOLERANCE_MS + 1 })),
+    );
+    expect(result).toEqual({ name: 'ValidationError', status: 400 });
+  });
+
+  it('解析不出时长的字节不被接受，且不落库', async () => {
+    const result = await rejection(storeVideo(db, ADMIN, inputOf(NOT_MP4)));
+    expect([result, filesInVideoDir()]).toEqual([
+      { name: 'ValidationError', status: 400 },
+      [],
+    ]);
+  });
+
+  it('时长超过 4 小时时抛 ValidationError', async () => {
+    const result = await rejection(
+      storeVideo(db, ADMIN, inputOf(TOO_LONG_MP4, { durationMs: MAX_VIDEO_DURATION_MS + 1 })),
+    );
+    expect(result).toEqual({ name: 'ValidationError', status: 400 });
+  });
+
+  it('超过上限的上传失败后目录里没有残留文件', async () => {
+    await rejection(
+      storeVideo(db, ADMIN, inputOf(TOO_LONG_MP4, { durationMs: MAX_VIDEO_DURATION_MS + 1 })),
+    );
     expect(filesInVideoDir()).toEqual([]);
   });
 });

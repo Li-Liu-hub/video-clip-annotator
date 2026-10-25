@@ -202,7 +202,9 @@ describe('isTenantUser', () => {
 });
 
 describe('重定向的真实行为', () => {
-  it('真实 redirect 通过抛异常中断执行，不依赖 mock', async () => {
+  // 全量跑时 40 个 worker 同时冷启动，next/navigation 的首次装载会超过默认 5 秒；
+  // 这不是逻辑慢，是并行冷缓存的代价。单独跑本文件约 84ms，故只给这一例放宽。
+  it('真实 redirect 通过抛异常中断执行，不依赖 mock', { timeout: 20_000 }, async () => {
     // 本文件的 redirect 被 mock 成「必抛」。若 Next 改成返回而非抛错，mock 会掩盖这个变化。
     // 这里绕过 mock 直接调真实实现，确认中断语义仍然成立。
     const actual = await vi.importActual<typeof import('next/navigation')>('next/navigation');

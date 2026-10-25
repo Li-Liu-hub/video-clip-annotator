@@ -52,7 +52,10 @@ export function seedDatabase(db, { now = Date.now(), videoSize = 1, demoLogin = 
   // 结果是 npm run dev 登录后什么都看不到，等于把安全性做成了不可用。
   const demoPassword = 'demo123';
   const sharedPassword = demo ? demoPassword : randomBytes(9).toString('base64url');
-  const adminPassword = sharedPassword;
+  // 管理员的演示口令与登录页「一键进入」保持一致，且与标注员不同：
+  // 两者曾各改一半（seed 改成 demo123、登录页仍是 admin123），演示按钮直接 401。
+  // tests/seed-demo.test.ts 现在钉住这条契约。
+  const adminPassword = demo ? 'admin123' : sharedPassword;
 
   const tenants = [
     { id: nid(), name: '林小雨的工作空间' },

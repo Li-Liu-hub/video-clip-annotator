@@ -83,7 +83,10 @@ $ grep -rl "admin123" .next/static
 
 ---
 
-## 3 中：写接口只靠 `SameSite=Lax`，无 Origin 校验
+## 3 中：写接口只靠 `SameSite=Lax`，无 Origin 校验 —— **已修（O2）**
+
+> 12 个写 handler 已统一接入 `requireSameOrigin`，`Origin: null` 按不同源处理；
+> `scripts/audit-rules.mjs` 规则 6 用 AST 守住接入点，删掉调用会直接让门禁变红。
 
 **位置**：13 个写 handler；cookie 属性见 `login/route.ts:92`
 
@@ -97,7 +100,7 @@ $ grep -rl "admin123" .next/static
 
 ---
 
-## 4 低：提交时片段在事务外读（TOCTOU）
+## 4 低：提交时片段在事务外读（TOCTOU）—— **已修（O3）**
 
 **位置**：`submit-service.ts:42`（事务外 `listByTask`）→ `:54`（事务内只重判任务状态）
 
@@ -109,9 +112,14 @@ $ grep -rl "admin123" .next/static
 必须与提交时刻的 segments 一致」，但那个时刻已经过去了——所以正确修法是把
 `listByTask` 挪进事务。
 
+**O3 修法**：`requireWritableTask` 与 `listByTask` 一起进 `writeTx`（`BEGIN IMMEDIATE`），
+并发删除要么在本事务前落地（读到删后状态），要么等本事务结束（那时任务已 submitted，
+`deleteSegment` 会 404）。`tests/submit-toctou.test.ts` 用真实 worker 线程持写锁复现。
+配套补 `snapshot-total` 不变量：快照 `total_ms` 必须等于 `segments_json` 各段之和。
+
 ---
 
-## 5 低：视频时长完全信任客户端，而它决定账本上限
+## 5 低：视频时长完全信任客户端，而它决定账本上限 —— **已修（O3）**
 
 **位置**：`api/videos/route.ts:66`、`video-service.ts:82`
 
@@ -120,6 +128,10 @@ $ grep -rl "admin123" .next/static
 
 **后果**：声明 999 小时即可让标注员合法标出 999 小时。需管理员权限，故列为低。
 真正的修法是服务端解析 mp4 的 `moov`（项目里已有读时长的兜底逻辑可复用）。
+
+**O3 修法**：`lib/mp4-duration` 顺 box 链读 `mvhd`（支持 moov 在尾部、扩展头、v1 的 64 位），
+解析失败直接拒收；客户端声明值只做 ±2s 交叉校验，落库用解析值；上限 4 小时。
+`tests/mp4-duration.test.ts` 覆盖两个真样本（含 moov 在 6.7MB 处的 pusht）与 18 个构造边界。
 
 ---
 
@@ -133,7 +145,7 @@ $ grep -rl "admin123" .next/static
 
 ---
 
-## 7 质量：22 组重复实现，其中 6 组会静默分叉
+## 7 质量：22 组重复实现，其中 6 组会静默分叉 —— **6 组已修（O2）**
 
 完整清单在扫描记录里，这里只列**改一处漏一处且不会变红**的：
 
@@ -154,6 +166,14 @@ $ grep -rl "admin123" .next/static
 **没有分层违规**：`app/**` 无 SQL 无 `lib/db` import，`services` 无 `next/*`，SQL 只在 repos。
 边界与健壮性整体良好（JSON.parse 4 处全有 try/catch，Number 4 处全后接 isFinite，
 `[0]` 取值 8 处全有前置守卫，除零 3 处全有兜底）。
+
+**O2 收口结果**：表中 6 组全部处理。归属门禁收敛到 `segment-service` 一处
+（`review-service` 的 reopen 必须用 owned，不能用 readable —— 目标状态就是 rejected）；
+上传上限与 MIME 白名单收敛到 `lib/video-limits`；`newId()` 落到 `lib/db/id.ts`（7 个调用点）；
+`db:check` 从 14 条降到 10 条（删掉 4 条与 `invariants.ts` 真重叠的），
+`invariant:check` 升到 7 条（快照唯一改成同时抓 count=0 与 >1，另加 O3 的 `snapshot-total`）；
+死代码删除，`WORKBENCH_STATUS_ID` 改为 import。
+「可改」的 12 组只做了不改变行为的合并，其余留在原处 —— 它们不会静默分叉。
 
 ---
 

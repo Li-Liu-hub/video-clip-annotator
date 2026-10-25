@@ -137,7 +137,7 @@ README 写「每个标注员属于一个租户，只能看到本租户的任务�
 | SQLite 而非 Postgres | 无 RLS、无 `EXCLUDE` 约束、不能多机 | 可，schema 不依赖方言    |
 | 手写 SQL 而非 ORM      | 罗嗦                        | 可，repository 是隔离带 |
 | 不用组件库              | 组件自写                      | 可，随时引入            |
-| 视频时长信任前端上报         | 不解析容器                     | 可，加 ffprobe       |
+| 服务端解析 mp4 读时长        | 要读完整个文件（moov 可能在尾部）      | 已实现，见 O3          |
 
 ---
 
@@ -364,7 +364,7 @@ CREATE TABLE videos (
 | `filename`     | TEXT    | NOT NULL   | 原始文件名，仅展示用                         |
 | `storage_path` | TEXT    | NOT NULL   | 相对 `data/videos/` 的路径，如 `a1b2.mp4` |
 | `size_bytes`   | INTEGER | CHECK > 0  | 字节数                                |
-| `duration_ms`  | INTEGER | CHECK > 0  | 时长，前端 `loadedmetadata` 上报          |
+| `duration_ms`  | INTEGER | CHECK > 0  | 时长，服务端解析 `mvhd`；前端上报值只做交叉校验 |
 | `mime_type`    | TEXT    | NOT NULL   | 当前只允许 `video/mp4`                  |
 | `uploaded_by`  | TEXT    | FK → users | 只有管理员能上传                           |
 | `created_at`   | INTEGER | NOT NULL   | —                                  |

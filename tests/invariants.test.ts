@@ -213,16 +213,44 @@ describe('I1 五组不变量', () => {
     const db = fixtureDb();
     const taskId = newTask(db);
 
-    // 故意造脏：直接插两条 open 快照。pending 任务没有账本，故不会牵动其他规则
+    // 故意造脏：直接插两条 open 快照。pending 任务没有账本，故不会牵动其他规则。
+    // segments_json 与 total_ms 保持自洽，否则会连带 snapshot-total，断言就不再指向单一规则
     const insertSnapshot = db.prepare(
       `INSERT INTO submissions (id, task_id, tenant_id, annotator_id, submitted_at, local_date,
                                 total_ms, segment_count, segments_json, created_at)
-       VALUES (?, ?, ?, ?, ?, '2026-10-20', ?, 1, '[]', ?)`,
+       VALUES (?, ?, ?, ?, ?, '2026-10-20', ?, 1, ?, ?)`,
     );
-    insertSnapshot.run('c000000000000001', taskId, TENANT_A, ALICE_ID, NOW, TOTAL_MS, NOW);
-    insertSnapshot.run('c000000000000002', taskId, TENANT_A, ALICE_ID, NOW, TOTAL_MS, NOW);
+    const consistentJson = JSON.stringify([{ startMs: 0, endMs: TOTAL_MS, label: null }]);
+    insertSnapshot.run('c000000000000001', taskId, TENANT_A, ALICE_ID, NOW, TOTAL_MS, consistentJson, NOW);
+    insertSnapshot.run('c000000000000002', taskId, TENANT_A, ALICE_ID, NOW, TOTAL_MS, consistentJson, NOW);
 
     expect(rulesOf(findViolations(db))).toEqual(['snapshot-unique']);
+  });
+
+  it('快照金额与 segments_json 各段之和不一致时报 snapshot-total', () => {
+    const db = fixtureDb();
+    const { submissionId } = submitNewTask(db);
+
+    // 故意造脏：只改快照内容，金额与账本保持原样 ——
+    // 于是 ledger-sum / ledger-snapshot-match 都不该响，只有这条新规则能抓到
+    db.prepare('UPDATE submissions SET segments_json = ? WHERE id = ?').run(
+      JSON.stringify([{ startMs: 0, endMs: 1_000, label: null }]),
+      submissionId,
+    );
+
+    expect(rulesOf(findViolations(db))).toEqual(['snapshot-total']);
+  });
+
+  it('segments_json 无法解析时报 snapshot-total 而不是让检查器崩掉', () => {
+    const db = fixtureDb();
+    const { submissionId } = submitNewTask(db);
+
+    // 故意造脏：把快照写成非 JSON。JSON1 求和会把这种行抛成异常，导致整个检查器停摆
+    db.prepare('UPDATE submissions SET segments_json = ? WHERE id = ?').run('[]-broken', submissionId);
+
+    expect(findViolations(db).map((violation) => [violation.rule, violation.subject])).toEqual([
+      ['snapshot-total', submissionId],
+    ]);
   });
 
   it('账本日期与快照不一致时报 ledger-snapshot-match，净额合计仍然对得上', () => {

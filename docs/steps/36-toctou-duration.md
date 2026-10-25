@@ -72,7 +72,8 @@ const durationMs = Number(request.headers.get('x-duration-ms'));
 // 只校验是正整数，没有上限，不与文件实际时长比对
 ```
 
-而 `tasks.estimated_ms` 取自它，片段合法范围 `endMs <= task.estimated_ms` 也取自它。
+而任务查询里的 `estimated_ms`（`videos.duration_ms` 的列别名）取自它，
+片段合法范围 `endMs <= estimated_ms` 也取自它。
 
 **为什么是问题**：这是「工作量以毫秒计」系统里唯一防注水的闸门，却由上传方一句话决定。
 声明 999 小时即可让标注员合法标出 999 小时。需要管理员权限，故列为低 ——
@@ -138,27 +139,43 @@ export const DURATION_TOLERANCE_MS = 2_000;
 
 ---
 
+## 实现裁定
+
+契约没写死、实现时必须选一个的分支，记在这里，免得下一个人以为是漏考虑：
+
+| 分支 | 选择 | 理由 |
+|---|---|---|
+| `timescale = 0` | `bad-mvhd` | 算出来是 Infinity，属坏容器，不是「零时长」 |
+| v0 的 `duration = 0xFFFFFFFF` | `zero-duration` | 规范里这是「时长未知」（分片 mp4 常见），不能当 49 天 |
+| mvhd 版本 ≥ 2 | `bad-mvhd` | 规范未定义布局，猜字段不如拒绝 |
+| 声明值缺失 | 仍然 400 | 服务端能解析也要留交叉校验：文件与声明不一致说明上传过程有问题 |
+| 解析时机 | 落盘之后 | 边收边判会把 moov 在尾部的合法文件误拒；失败时删 `.part` |
+| 时长上限位置 | service，不在解析层 | 解析层保持纯函数，5 小时的构造样本照样能读出（测试要它） |
+| 整文件读入内存 | 接受 | 上限由 `MAX_VIDEO_BYTES`（200MB）约束；为分段读引入流式 box 解析不值得 |
+
+---
+
 ## 验收
 
 **自动**
 
-- [ ] TOCTOU：并发「删片段 + 提交」后，快照的 segments_json 与 segments 表一致
-      （用真实的并发调用，不是模拟）
-- [ ] TOCTOU 修复后，现有提交用例全绿（事务内抛错能正常回滚）
-- [ ] 新不变量：快照 `total_ms` ≠ `segments_json` 各段之和 → 报错
-- [ ] `readMp4Duration` 对 `fixtures/videos/aloha-coffee.mp4` 返回 30000±50ms
-- [ ] 对 `fixtures/videos/pusht-pushblock.mp4`（moov 在尾部）返回正确时长
-- [ ] 非 mp4 字节 → `no-moov`
-- [ ] 截断的 mp4 → `truncated`，不抛
-- [ ] 时长 > 4 小时 → 上传 400
-- [ ] 客户端声明与服务端差 > 2 秒 → 上传 400
-- [ ] 声明与服务端一致 → 上传成功，`estimated_ms` 用**服务端**的值
-- [ ] 现有 782 例全绿
+- [x] TOCTOU：并发「删片段 + 提交」后，快照的 segments_json 与 segments 表一致
+      （`tests/submit-toctou.test.ts`，真 worker 线程持写锁，不是模拟）
+- [x] TOCTOU 修复后，现有提交用例全绿（事务内抛错能正常回滚）
+- [x] 新不变量：快照 `total_ms` ≠ `segments_json` 各段之和 → 报错
+- [x] `readMp4Duration` 对 `fixtures/videos/aloha-coffee.mp4` 返回 30000±50ms
+- [x] 对 `fixtures/videos/pusht-pushblock.mp4`（moov 在 6.7MB 处）返回 2565000ms
+- [x] 非 mp4 字节 → `no-moov`
+- [x] 截断的 mp4 → `truncated`，不抛
+- [x] 时长 > 4 小时 → 上传 400
+- [x] 客户端声明与服务端差 > 2 秒 → 上传 400
+- [x] 声明与服务端一致 → 上传成功，`estimated_ms` 用**服务端**的值
+- [x] 全量 832 例全绿（O3 新增 31 例；另加种子口令一致性 4 例）
 
 **手工**
 
-- [ ] 上传一个真实 mp4（用 `fixtures/videos/aloha-coffee.mp4`），任务时长显示 30 秒
-- [ ] 上传一个改过 `x-duration-ms` 的请求 → 被拒
+- [x] 用真实 HTTP 上传 `fixtures/videos/aloha-coffee.mp4`，任务时长为 30 秒
+- [x] 同一个文件把 `x-duration-ms` 改成 999000 → 被拒（400）
 
 ---
 

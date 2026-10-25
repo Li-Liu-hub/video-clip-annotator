@@ -49,17 +49,20 @@ export function parseRange(header: string | null, size: number): RangeResult;
 
 ```ts
 export const MAX_VIDEO_BYTES = 200 * 1024 * 1024;   // 200 MB
+export const MAX_VIDEO_DURATION_MS = 4 * 60 * 60 * 1000;  // 4 小时
+export const DURATION_TOLERANCE_MS = 2_000;
 
 export type UploadInput = {
   filename: string;
   mimeType: string;
   sizeBytes: number;
+  /** 客户端声明值，只用于与解析值交叉校验，不落库 */
   durationMs: number;
   stream: ReadableStream<Uint8Array>;
 };
 
 /** 写盘并落库。调用方必须已确认是管理员。 */
-export function storeVideo(db: DB, actor: SessionUser, input: UploadInput): VideoRow;
+export function storeVideo(db: DB, actor: SessionUser, input: UploadInput): Promise<VideoRow>;
 
 /** 取可播放的视频。无权限与不存在都抛 NotFoundError（不泄露存在性）。 */
 export function openVideoForRead(db: DB, actor: SessionUser, videoId: string): VideoRow;
@@ -76,7 +79,7 @@ Headers: content-type: video/mp4
 Body:    文件二进制
 
 200 { ok: true, video: { id, filename, sizeBytes, durationMs, createdAt } }
-400 缺少 x-duration-ms / 类型不支持
+400 缺少 x-duration-ms / 类型不支持 / 解析不出时长 / 声明与实际相差 >2s / 超过 4 小时
 401/403 未登录或非管理员
 413 超过 MAX_VIDEO_BYTES
 ```
@@ -160,11 +163,16 @@ bytes=999999-   → 416（start >= size）
 
 ### 7. 时长的来源
 
-服务端不调 `ffprobe`（会引入外部依赖，破坏「一键运行」）。
-时长由客户端在上传前用 `<video>` 元素读出，放在 `x-duration-ms` 头里。
+服务端**解析文件本身**：`src/lib/mp4-duration.ts` 顺 box 链读 `moov` 里的 `mvhd`，
+支持 moov 在文件尾部（未开 faststart 的编码器）与 v1 的 64 位时长。
+不引入 ffprobe —— 那会破坏「一键运行」。
 
-**这是信任边界上的妥协**：标注员能看到错误时长（比如把 40s 说成 1h），
-但他改不了别人的数据，且片段端点由 `segments` 表约束。做法记在 `report.md` 的已知缺口里。
+`x-duration-ms` 仍然必填，但只做**交叉校验**：与解析值相差超过 2 秒就 400
+（说明客户端撒谎，或文件与声明不是同一个）。解析失败直接拒收，**不回落到声明值** ——
+回落等于这道闸门不存在。上限 4 小时；`tasks.estimated_ms` 用解析值。
+
+代价：上传要等文件写完之后再读一遍（最多 `MAX_VIDEO_BYTES`）。
+详见 [36-toctou-duration](36-toctou-duration.md)。
 
 ---
 

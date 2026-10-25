@@ -29,32 +29,33 @@ const STATE_CONFLICT_MESSAGE = '任务当前状态不允许提交';
 /**
  * 提交任务。前置：本人领取、状态 claimed、至少有 1 个片段。
  * 四写入同一事务：submissions + ledger_entries + tasks.status + audit_logs。
+ *
+ * 归属、状态与片段列表三者都在同一个 writeTx 内读：事务外读片段时，
+ * 并发「删片段」可以落在「读片段」与「拿写锁」之间（那时任务仍是 claimed，
+ * 删除会放行），随后提交就把已删除的片段写进快照与账本。
+ * BEGIN IMMEDIATE 让读取与写入处于同一临界区：删除要么在事务前完成（读到删后的状态），
+ * 要么等本事务结束 —— 那时任务已是 submitted，deleteSegment 会 404。
  */
 export function submitTask(db: DB, actor: TenantUser, taskId: string): SubmitResult {
-  /*
-   * 事务外先判归属与状态，再判片段是否为空。
-   * 顺序不可颠倒：空片段是 409，而别人的任务必须是 404（RULES：先判存在性与归属，再判状态）。
-   * 反过来的话，跨租户的提交请求会收到「还没有标注任何片段」，等于用 409 确认了任务存在。
-   */
-  requireWritableTask(db, actor, taskId);
-
-  // 只读预检放在事务外：没标任何片段时不该为一个注定失败的提交持写锁
-  const segments = listByTask(db, actor.tenantId, taskId);
-  if (segments.length === 0) throw new StateConflictError(EMPTY_SEGMENTS_MESSAGE);
-
-  /*
-   * 计入的是「标了多少」，不是「视频多长」：30 分钟视频只标了 3 分钟，账上就是 3 分钟。
-   * 半开区间 [start, end)，长度即差值。
-   */
-  const totalMs = segments.reduce((sum, segment) => sum + (segment.end_ms - segment.start_ms), 0);
-
   return writeTx(db, () => {
     /*
-     * 锁内重判一次。BEGIN IMMEDIATE 的写锁在回调之前就拿到了，
+     * 顺序不可颠倒：空片段是 409，而别人的任务必须是 404（RULES：先判存在性与归属，再判状态）。
+     * 反过来的话，跨租户的提交请求会收到「还没有标注任何片段」，等于用 409 确认了任务存在。
+     *
+     * 锁内重判一次：BEGIN IMMEDIATE 的写锁在回调之前就拿到了，
      * 两个并发的提交请求中，第二个会在这里读到 submitted 而抛 409 —— 这就是重复提交的兜底。
      * 不返回「上次的提交」：幂等键是客户端的事，服务端只保证同一任务不会被提交两次。
      */
     const task = requireWritableTask(db, actor, taskId);
+
+    const segments = listByTask(db, actor.tenantId, taskId);
+    if (segments.length === 0) throw new StateConflictError(EMPTY_SEGMENTS_MESSAGE);
+
+    /*
+     * 计入的是「标了多少」，不是「视频多长」：30 分钟视频只标了 3 分钟，账上就是 3 分钟。
+     * 半开区间 [start, end)，长度即差值。
+     */
+    const totalMs = segments.reduce((sum, segment) => sum + (segment.end_ms - segment.start_ms), 0);
 
     const now = nowMs();
     // 按租户时区算「哪一天」，不按服务器：UTC 机器上晚上 8 点的提交仍算今天

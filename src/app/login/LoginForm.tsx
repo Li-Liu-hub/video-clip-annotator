@@ -4,6 +4,7 @@
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
+import { DEMO_ACCOUNTS } from '@/lib/demo-accounts';
 import { homePathOf } from '@/lib/routes';
 
 /**
@@ -12,19 +13,10 @@ import { homePathOf } from '@/lib/routes';
  * NEXT_PUBLIC_* 在构建期被内联成字面量，所以默认构建里这整个数组（含四个明文口令）
  * 必须被判成死代码摇掉。这是实测项，不是推断项：默认构建后
  * `grep -rl "admin123" .next/static` 必须无输出。
+ *
+ * 账号数据在 `lib/demo-accounts`：seed 与登录页共用同一份，避免只改一端。
  */
 const SHOW_DEMO = process.env.NEXT_PUBLIC_DEMO_LOGIN === '1';
-
-/**
- * name 必须与 users.display_name 一致，note 只描述角色与可见范围。
- * 不写租户名：租户名由 setup.mjs 生成，页面写死就会展示与库不符的事实。
- */
-const DEMO_ACCOUNTS = [
-  { username: 'admin', password: 'admin123', name: '平台管理员', note: '跨租户 · 发布与统计' },
-  { username: 'alice', password: 'demo123', name: '林小雨', note: '标注员 · 独立租户' },
-  { username: 'bob', password: 'demo123', name: '陈默', note: '标注员 · 独立租户' },
-  { username: 'carol', password: 'demo123', name: '周予安', note: '标注员 · 独立租户' },
-] as const;
 
 /** 登录接口的响应体。用判别联合而非全可选字段，成功分支里 role 就不必再兜 undefined。 */
 type LoginReply =

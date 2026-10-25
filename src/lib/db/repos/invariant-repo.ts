@@ -54,6 +54,9 @@ export type TenantMismatchRow = {
   task_id: string;
 };
 
+/** 快照金额核对的取数：segments_json 原样取出，在 TS 侧解析（SQL 里没有可靠的 JSON 求和回退）。 */
+export type SnapshotTotalRow = { id: string; total_ms: number; segments_json: string };
+
 /**
  * 净额与当前有效提交对不上。
  *
@@ -205,4 +208,18 @@ export function listTenantMismatches(db: DB): TenantMismatchRow[] {
         ORDER BY relation, subject`,
     )
     .all() as TenantMismatchRow[];
+}
+
+/**
+ * 所有快照的金额与内容，供「快照自洽」核对。
+ *
+ * 求和放在 TS 侧而不是 SQL：segments_json 可能被写坏成非 JSON，
+ * 那样 json_each 会直接抛错，把「一条坏数据」变成「整个检查器崩掉」；
+ * 而 TS 侧能把它报成一条违反项。含已被取代的历史快照 —— 退回冲正按它们的金额算。
+ */
+export function listSnapshotTotals(db: DB): SnapshotTotalRow[] {
+  // audit-ignore: 不变量检查跨全部租户，租户不是访问范围
+  return db
+    .prepare('SELECT id, total_ms, segments_json FROM submissions ORDER BY id')
+    .all() as SnapshotTotalRow[];
 }

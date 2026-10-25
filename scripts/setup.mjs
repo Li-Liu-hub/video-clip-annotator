@@ -57,17 +57,17 @@ if (initialized && !reset) {
 
 db.exec(fs.readFileSync(SCHEMA_PATH, 'utf8'));
 
-// 视频只属于演示数据：默认库不建演示账号，也就不需要这份素材
+// 视频素材在任何模式下都要复制：任务始终插入并引用它。
+// 早先只在演示模式复制，默认库能登录、能看到任务，但一点播放就 404 ——
+// 「数据全量、只随机口令」这个取舍里，视频属于数据，不属于口令。
 const demoLogin = process.env.DEMO_LOGIN === '1';
 const copiedVideo = path.join(VIDEO_DIR, VIDEO_FILE);
-if (demoLogin) {
-  // 视频随仓库分发，这里复制到运行时目录，避免和静态资源混淆
-  fs.mkdirSync(VIDEO_DIR, { recursive: true });
-  if (fs.existsSync(VIDEO_SRC)) {
-    fs.copyFileSync(VIDEO_SRC, copiedVideo);
-  } else {
-    console.warn(`[setup] 警告：${VIDEO_SRC} 缺失，任务里的视频将无法播放`);
-  }
+// 视频随仓库分发，这里复制到运行时目录，避免和静态资源混淆
+fs.mkdirSync(VIDEO_DIR, { recursive: true });
+if (fs.existsSync(VIDEO_SRC)) {
+  fs.copyFileSync(VIDEO_SRC, copiedVideo);
+} else {
+  console.warn(`[setup] 警告：${VIDEO_SRC} 缺失，任务里的视频将无法播放`);
 }
 
 const { counts, sharedPassword } = seedDatabase(db, {

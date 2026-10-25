@@ -12,6 +12,7 @@ import {
   listClaimedPairMismatches,
   listLedgerSnapshotMismatches,
   listNegativeNets,
+  listSnapshotTotals,
   listTaskBalanceMismatches,
   listTasksWithBadOpenSnapshotCount,
   listTenantMismatches,
@@ -21,8 +22,15 @@ import {
 import { AppError } from '@/lib/errors';
 
 export type Violation = {
-  rule: 'ledger-sum' | 'ledger-non-negative' | 'snapshot-unique' | 'ledger-snapshot-match' | 'status-claimed-pair' | 'tenant-consistency';
-  /** 违反的那一行（任务 id / 账本 id），便于直接去库里查 */
+  rule:
+    | 'ledger-sum'
+    | 'ledger-non-negative'
+    | 'snapshot-unique'
+    | 'snapshot-total'
+    | 'ledger-snapshot-match'
+    | 'status-claimed-pair'
+    | 'tenant-consistency';
+  /** 违反的那一行（任务 id / 账本 id / 快照 id），便于直接去库里查 */
   subject: string;
   detail: string;
 };
@@ -70,6 +78,65 @@ function snapshotUniqueViolations(db: DB): Violation[] {
         ? '已提交却没有有效快照'
         : `存在 ${row.open_count} 条未被取代的快照（${row.ids}）`,
   }));
+}
+
+/** 快照里的一段；形状不对说明快照被写坏了，返回 null 表示无法核对。 */
+function isSnapshotSegment(value: unknown): value is { startMs: number; endMs: number } {
+  if (typeof value !== 'object' || value === null) return false;
+  const segment = value as { startMs?: unknown; endMs?: unknown };
+  return typeof segment.startMs === 'number' && typeof segment.endMs === 'number';
+}
+
+/** 快照内各段时长之和；JSON 坏了或形状不对返回 null。 */
+function sumOfSnapshotSegments(json: string): number | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json) as unknown;
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(parsed)) return null;
+
+  let sum = 0;
+  for (const segment of parsed) {
+    if (!isSnapshotSegment(segment)) return null;
+    sum += segment.endMs - segment.startMs;
+  }
+  return sum;
+}
+
+/**
+ * 快照的 total_ms 必须等于 segments_json 各段之和。
+ *
+ * 与 ledger-snapshot-match 互补：那条锁「账本金额 = 快照金额」，这条锁「快照金额 = 快照内容」。
+ * 只有前者时，一份「算错金额但账本与之一致」的快照能同时骗过两条老规则。
+ *
+ * 含已被取代的历史快照：退回的冲正按它们的金额算，历史算错同样是缺陷。
+ * 提交时刻本身（快照与当时的片段表逐段相同）事后无法验，故这里只验可验的部分。
+ */
+function snapshotTotalViolations(db: DB): Violation[] {
+  const violations: Violation[] = [];
+
+  for (const row of listSnapshotTotals(db)) {
+    const sum = sumOfSnapshotSegments(row.segments_json);
+    if (sum === null) {
+      violations.push({
+        rule: 'snapshot-total',
+        subject: row.id,
+        detail: 'segments_json 无法解析，不能核对金额',
+      });
+      continue;
+    }
+    if (sum !== row.total_ms) {
+      violations.push({
+        rule: 'snapshot-total',
+        subject: row.id,
+        detail: `快照金额 ${row.total_ms}ms 与各段之和 ${sum}ms 不一致`,
+      });
+    }
+  }
+
+  return violations;
 }
 
 /** 把一条账目的所有不一致都列出来；只报第一个会让修完一处又冒一处。 */
@@ -132,6 +199,8 @@ export function findViolations(db: DB): Violation[] {
     ...ledgerSumViolations(db),
     ...ledgerNonNegativeViolations(db),
     ...snapshotUniqueViolations(db),
+    ...snapshotTotalViolations(db),
+
     ...ledgerSnapshotMatchViolations(db),
     ...statusClaimedPairViolations(db),
     ...tenantConsistencyViolations(db),
