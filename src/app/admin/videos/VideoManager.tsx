@@ -10,15 +10,15 @@
 import { useRef, useState } from 'react';
 import { formatDuration } from '@/lib/time';
 import {
-  MAX_UPLOAD_BYTES,
   checkFile,
   readDurationMs,
   uploadVideo,
   type UploadHandle,
   type VideoSummary,
 } from '@/lib/video-upload';
+import { MAX_VIDEO_BYTES } from '@/lib/video-limits';
 
-const MAX_UPLOAD_MB = MAX_UPLOAD_BYTES / 1024 / 1024;
+const MAX_UPLOAD_MB = MAX_VIDEO_BYTES / 1024 / 1024;
 
 /** 三种预检原因的文案只在 UI 这一处映射，service 与组件不会各写一套。 */
 const CHECK_MESSAGE: Record<'too-large' | 'bad-type' | 'empty', string> = {

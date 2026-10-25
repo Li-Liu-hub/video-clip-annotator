@@ -13,7 +13,7 @@ import {
   listLedgerSnapshotMismatches,
   listNegativeNets,
   listTaskBalanceMismatches,
-  listTasksWithMultipleOpenSnapshots,
+  listTasksWithBadOpenSnapshotCount,
   listTenantMismatches,
   type LedgerSnapshotRow,
   type TenantMismatchRow,
@@ -55,12 +55,20 @@ function ledgerNonNegativeViolations(db: DB): Violation[] {
   }));
 }
 
-/** 同一任务最多一条未被取代的快照，否则同一份工作量会被算两次。 */
+/**
+ * 有效快照的数量：submitted 的任务必须恰好一条，任何任务都不能多于一条。
+ *
+ * 等于 0 的那半是合并 `db:check` 时补上的：早先只判 `> 1`，
+ * 而「提交了但没有存档」比「存了两份」更难发现 —— 账本上有金额，快照却没了。
+ */
 function snapshotUniqueViolations(db: DB): Violation[] {
-  return listTasksWithMultipleOpenSnapshots(db).map((row) => ({
+  return listTasksWithBadOpenSnapshotCount(db).map((row) => ({
     rule: 'snapshot-unique',
     subject: row.task_id,
-    detail: `存在 ${row.open_count} 条未被取代的快照（${row.ids}）`,
+    detail:
+      row.open_count === 0
+        ? '已提交却没有有效快照'
+        : `存在 ${row.open_count} 条未被取代的快照（${row.ids}）`,
   }));
 }
 

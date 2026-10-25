@@ -4,8 +4,8 @@
  * 这是第一个不可逆操作，因此四写在同一个 writeTx 内 —— 少任何一个都会留下
  * 「有提交无账」「有账无提交」「任务还能改」这类需要人工对账的断链。
  */
-import { randomBytes } from 'node:crypto';
 import { nowMs, writeTx, type DB } from '@/lib/db';
+import { newId } from '@/lib/db/id';
 import { insertEntry } from '@/lib/db/repos/ledger-repo';
 import { listByTask } from '@/lib/db/repos/segment-repo';
 import { insertSubmission, supersedeOpenByTask } from '@/lib/db/repos/submission-repo';
@@ -25,9 +25,6 @@ export type SubmitResult = {
 
 const EMPTY_SEGMENTS_MESSAGE = '还没有标注任何片段';
 const STATE_CONFLICT_MESSAGE = '任务当前状态不允许提交';
-
-/** 8 字节随机数 → 16 位十六进制，与 RULES 的 id 约定一致 */
-const ID_BYTES = 8;
 
 /**
  * 提交任务。前置：本人领取、状态 claimed、至少有 1 个片段。
@@ -62,7 +59,7 @@ export function submitTask(db: DB, actor: TenantUser, taskId: string): SubmitRes
     const now = nowMs();
     // 按租户时区算「哪一天」，不按服务器：UTC 机器上晚上 8 点的提交仍算今天
     const localDate = localDateOf(now, actor.timezone);
-    const submissionId = randomBytes(ID_BYTES).toString('hex');
+    const submissionId = newId();
 
     insertSubmission(db, {
       id: submissionId,
@@ -102,7 +99,7 @@ export function submitTask(db: DB, actor: TenantUser, taskId: string): SubmitRes
     }
 
     insertEntry(db, {
-      id: randomBytes(ID_BYTES).toString('hex'),
+      id: newId(),
       tenantId: task.tenant_id,
       taskId,
       submissionId,

@@ -4,8 +4,8 @@
  * 单条片段的校验不另写规则，而是把「候选集整体」交给 normalizeSegments ——
  * 长度、范围、整数、重叠四组规则因此只有一处实现。
  */
-import { randomBytes } from 'node:crypto';
 import { nowMs, writeTx, type DB } from '@/lib/db';
+import { newId } from '@/lib/db/id';
 import {
   deleteById,
   insertSegment,
@@ -37,9 +37,6 @@ const TASK_STATE_CONFLICT_MESSAGE = '任务当前状态不允许修改片段';
 const REPLACE_TARGET_MISSING_MESSAGE = '要替换的片段不存在';
 const SEGMENT_MISSING_MESSAGE = '片段不存在';
 const OVERLAP_MESSAGE = '这个片段与已标注的区间重叠';
-
-/** 8 字节随机数 → 16 位十六进制，与 RULES 的 id 约定一致 */
-const SEGMENT_ID_BYTES = 8;
 
 function toSegmentRow(record: SegmentRecord): SegmentRow {
   return {
@@ -90,14 +87,17 @@ function throwIssue(issue: SegmentIssue, conflict?: Interval): never {
  * 同租户同事的任务也用 404 而不是 403：403 等于承认这条任务存在，
  * 同事的任务清单会因此可被枚举。顺序按 RULES：先判存在性与归属，再判状态。
  *
- * 归属谓词只有这一份。读、写两个入口都经它，避免「一处改了另一处没改」。
+ * 归属谓词只有这一份。工作台、退回后重新打开都经它，避免「一处改了另一处没改」。
  */
-function requireOwnedTask(db: DB, actor: TenantUser, taskId: string): TaskRow {
+export function requireOwnedTask(db: DB, actor: TenantUser, taskId: string): TaskRow {
   const task = findByIdForTenant(db, taskId, actor.tenantId);
   if (!task) throw new NotFoundError(TASK_NOT_FOUND_MESSAGE);
   if (task.claimed_by !== actor.id) throw new NotFoundError(TASK_NOT_FOUND_MESSAGE);
   return task;
 }
+
+/** 可读的两个状态。收窄成字面量联合，工作台才能直接把 status 交给它的 DTO。 */
+type ReadableStatus = 'claimed' | 'submitted';
 
 /**
  * 可读：归属成立 + 状态在白名单里。读路径用它，于是已提交的任务仍可读。
@@ -106,12 +106,17 @@ function requireOwnedTask(db: DB, actor: TenantUser, taskId: string): TaskRow {
  * 打开它看到的是过期数据 —— 与 getWorkTask 的拒绝理由同一条。
  * 用白名单而非「排除 rejected」：将来加第五个状态时，这里默认放行会出问题。
  */
-function requireReadableTask(db: DB, actor: TenantUser, taskId: string): TaskRow {
+export function requireReadableTask(
+  db: DB,
+  actor: TenantUser,
+  taskId: string,
+): TaskRow & { status: ReadableStatus } {
   const task = requireOwnedTask(db, actor, taskId);
   if (task.status !== 'claimed' && task.status !== 'submitted') {
     throw new NotFoundError(TASK_NOT_FOUND_MESSAGE);
   }
-  return task;
+  // 断言的类型正是上一行判过的条件：判定与收窄在同一函数里，不可能漂移
+  return task as TaskRow & { status: ReadableStatus };
 }
 
 /**
@@ -178,7 +183,7 @@ export function upsertSegment(
     if (target) deleteById(db, actor.tenantId, taskId, target.id);
 
     const row: SegmentRow = {
-      id: randomBytes(SEGMENT_ID_BYTES).toString('hex'),
+      id: newId(),
       startMs: input.startMs,
       endMs: input.endMs,
       label: null,

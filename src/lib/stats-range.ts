@@ -8,7 +8,7 @@ import type { StatsDimension } from '@/lib/services/stats-service';
 
 export type RangePreset = 'last7' | 'last30' | 'thisMonth';
 
-/** 闭区间，两端都是落库即定型的 YYYY-MM-DD（与 ledger-repo 的 DateRange 结构一致）。 */
+/** 闭区间，两端都是落库即定型的 YYYY-MM-DD。账本查询与此处的区间计算共用这一份。 */
 export type DateRange = { from: string; to: string };
 
 const DAY_MS = 86_400_000;

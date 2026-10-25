@@ -101,17 +101,30 @@ export function listNegativeNets(db: DB): NegativeNetRow[] {
     .all() as NegativeNetRow[];
 }
 
-/** 同一任务下 superseded_by IS NULL 的行数 > 1。 */
-export function listTasksWithMultipleOpenSnapshots(db: DB): MultiOpenSnapshotRow[] {
+/**
+ * 有效快照数量不对的任务。
+ *
+ * 两种情况都要报，早先只判了 `> 1`：
+ *
+ * - `submitted` 的任务必须有**恰好一条**有效快照。等于 0 意味着「提交了但没有存档」，
+ *   账本上却有金额 —— `db:check` 的旧实现抓到过这种，合并时不能只留 `> 1` 那半。
+ * - 任何任务都不该有**多于一条**有效快照（提交两次而旧快照没被标记 superseded）。
+ *
+ * 一条 SQL 覆盖两者：submitted 要求 `= 1`，其余要求 `<= 1`。
+ * 写成一个 HAVING 而不是两条规则，是因为它们回答的是同一个问题：
+ * 「这个任务的有效快照数对吗」。
+ */
+export function listTasksWithBadOpenSnapshotCount(db: DB): MultiOpenSnapshotRow[] {
   // audit-ignore: 不变量检查跨全部租户，租户不是访问范围
   return db
     .prepare(
-      `SELECT task_id, COUNT(*) AS open_count, GROUP_CONCAT(id) AS ids
-         FROM submissions
-        WHERE superseded_by IS NULL
-        GROUP BY task_id
-       HAVING COUNT(*) > 1
-        ORDER BY task_id`,
+      `SELECT t.id AS task_id, COUNT(s.id) AS open_count, GROUP_CONCAT(s.id) AS ids
+         FROM tasks t
+         LEFT JOIN submissions s ON s.task_id = t.id AND s.superseded_by IS NULL
+        GROUP BY t.id, t.status
+       HAVING (t.status = 'submitted' AND COUNT(s.id) <> 1)
+           OR COUNT(s.id) > 1
+        ORDER BY t.id`,
     )
     .all() as MultiOpenSnapshotRow[];
 }

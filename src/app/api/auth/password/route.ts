@@ -9,6 +9,7 @@ import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { getDb } from '@/lib/server/db';
 import { requireApiUser } from '@/lib/server/api-guard';
+import { requireSameOrigin } from '@/lib/server/require-same-origin';
 import { ValidationError, toErrorResponse } from '@/lib/errors';
 import { changePassword, SESSION_COOKIE, type PasswordChangeInput } from '@/lib/services/auth-service';
 
@@ -45,6 +46,7 @@ export async function POST(request: Request) {
 
   try {
     const user = await requireApiUser();
+    requireSameOrigin(request);
     const input = await readInput(request);
 
     // 当前会话这条要留下：改完密码把自己踢回登录页是最容易被当成「改密失败」的行为

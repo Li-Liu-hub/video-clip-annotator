@@ -7,15 +7,17 @@
 import { NextResponse } from 'next/server';
 import { toErrorResponse } from '@/lib/errors';
 import { requireApiAnnotator } from '@/lib/server/api-guard';
+import { requireSameOrigin } from '@/lib/server/require-same-origin';
 import { getDb } from '@/lib/server/db';
 import { claimTask } from '@/lib/services/task-service';
 
 // service 直接写 SQLite（better-sqlite3），Edge runtime 没有这个模块
 export const runtime = 'nodejs';
 
-export async function POST(_request: Request, context: { params: Promise<{ id: string }> }) {
+export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
     const actor = await requireApiAnnotator();
+    requireSameOrigin(request);
     const { id } = await context.params;
 
     const task = claimTask(getDb(), actor, id);

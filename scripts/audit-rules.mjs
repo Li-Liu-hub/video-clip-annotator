@@ -89,9 +89,55 @@ for (const file of walk(path.join(ROOT, 'src'))) {
   });
 }
 
+// ── 规则 6：每个写 handler 必须做同源校验 ──────────────
+//
+// 只测函数本身不够：requireSameOrigin 写得再对，漏接一个 handler 就等于那个接口
+// 没防护，而函数级测试全绿。实测删掉 claim 路由里的调用，12 例一条都不红。
+//
+// 写方法按「导出方法」算，不按文件：segments/[segmentId] 的签名跨行，正则按文件数会漏。
+const WRITE_METHODS = ['POST', 'PATCH', 'PUT', 'DELETE'];
+const apiRoot = path.join(ROOT, 'src/app/api');
+let writeHandlerCount = 0;
+
+for (const file of walk(apiRoot)) {
+  if (!file.endsWith('route.ts')) continue;
+  const text = fs.readFileSync(file, 'utf8');
+  const lines = text.split('\n');
+
+  lines.forEach((line, i) => {
+    const decl = line.match(/export\s+async\s+function\s+(POST|PATCH|PUT|DELETE)\b/);
+    if (!decl) return;
+    writeHandlerCount += 1;
+
+    // 取这个 handler 的函数体：从声明行到下一个 export 或文件尾
+    let end = lines.length;
+    for (let j = i + 1; j < lines.length; j += 1) {
+      if (/^export\s/.test(lines[j])) {
+        end = j;
+        break;
+      }
+    }
+    const body = lines.slice(i, end).join('\n');
+
+    if (!/requireSameOrigin\s*\(/.test(body)) {
+      report('写接口必须调用 requireSameOrigin', rel(file), i + 1, `${decl[1]} 没有同源校验`);
+    }
+    // 参数名以 _ 开头等于没接：拿不到 request 就没法看头
+    if (/_request\s*:\s*Request/.test(body)) {
+      report('写接口的 request 参数不得命名为 _request', rel(file), i + 1, '拿不到请求头');
+    }
+  });
+}
+
+// 12 是当前写接口的数量。新增写 handler 时必须同时确认它接入了校验，
+// 否则这条规则会因为「没扫到」而假绿
+if (writeHandlerCount !== 12) {
+  report('写接口数量变化，需要复核校验覆盖', 'src/app/api', 0, `实际 ${writeHandlerCount} 个，预期 12 个`);
+}
+
 // ── 输出 ────────────────────────────────────────────
 if (violations.length === 0) {
-  console.log('[audit:rules] 5 条规则全部通过');
+  console.log('[audit:rules] 6 条规则全部通过');
   process.exit(0);
 }
 

@@ -22,8 +22,6 @@ const MIN_BAR_HEIGHT = 2;
 const BAR_RADIUS = 2;
 const CHART_HEIGHT_CLASS = 'h-[160px]';
 
-export type BarSlot = { date: string; totalMs: number; ratio: number };
-
 const AXIS_COLOR = 'var(--color-line)';
 const BAR_COLOR = 'var(--color-accent-2)';
 const PEAK_BAR_COLOR = 'var(--color-accent)';

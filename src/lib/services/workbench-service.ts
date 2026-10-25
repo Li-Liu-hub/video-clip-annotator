@@ -4,11 +4,13 @@
  * 四种拒绝（未领取 / 别人领取 / 其他租户 / 已退回）合并为同一个 NotFoundError：
  * 分开回不同状态码，就等于承认「这条任务确实存在」。
  * 已提交放行是为了只读回顾（E8）：能看内容，改不了片段。
+ *
+ * 归属与状态的判定不在这里重写：requireReadableTask 是唯一一份。
+ * 抄一遍的代价是「工作台能开、片段列表 404」这类静默分叉 —— 改状态机时只改一处。
  */
 import type { DB } from '@/lib/db';
-import { findByIdForTenant } from '@/lib/db/repos/task-repo';
-import { NotFoundError } from '@/lib/errors';
 import type { TenantUser } from './auth-service';
+import { requireReadableTask } from './segment-service';
 
 export type WorkTask = {
   id: string;
@@ -27,8 +29,6 @@ export type WorkTask = {
   rejectReason: string | null;
 };
 
-const TASK_NOT_FOUND_MESSAGE = '任务不存在';
-
 /**
  * 播放地址在 service 里拼定。
  *
@@ -41,15 +41,7 @@ function streamUrlOf(videoId: string): string {
 
 /** 取工作台任务。不是自己领取的、状态不对的，一律 NotFoundError。 */
 export function getWorkTask(db: DB, actor: TenantUser, taskId: string): WorkTask {
-  const task = findByIdForTenant(db, taskId, actor.tenantId);
-  if (!task) throw new NotFoundError(TASK_NOT_FOUND_MESSAGE);
-
-  // pending 没有归属、同租户同事的任务不该被看到：两者都在归属这一步拒掉
-  if (task.claimed_by !== actor.id) throw new NotFoundError(TASK_NOT_FOUND_MESSAGE);
-  // rejected 不能放行：退回的任务已回到池子，打开它看到的是过期数据
-  if (task.status !== 'claimed' && task.status !== 'submitted') {
-    throw new NotFoundError(TASK_NOT_FOUND_MESSAGE);
-  }
+  const task = requireReadableTask(db, actor, taskId);
 
   return {
     id: task.id,

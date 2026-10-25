@@ -5,7 +5,8 @@
  * readDurationMs 与 uploadVideo 依赖浏览器 API，留给手工验收。
  */
 import { describe, expect, it } from 'vitest';
-import { MAX_UPLOAD_BYTES, checkFile } from '@/lib/video-upload';
+import { checkFile } from '@/lib/video-upload';
+import { MAX_VIDEO_BYTES } from '@/lib/video-limits';
 
 describe('checkFile 拒绝不可上传的文件', () => {
   it('空文件返回 empty', () => {
@@ -13,7 +14,7 @@ describe('checkFile 拒绝不可上传的文件', () => {
   });
 
   it('超过上限一个字节返回 too-large', () => {
-    expect(checkFile({ size: MAX_UPLOAD_BYTES + 1, type: 'video/mp4' })).toEqual({
+    expect(checkFile({ size: MAX_VIDEO_BYTES + 1, type: 'video/mp4' })).toEqual({
       ok: false,
       reason: 'too-large',
     });
@@ -30,7 +31,7 @@ describe('checkFile 拒绝不可上传的文件', () => {
 
 describe('checkFile 放行合法文件', () => {
   it('恰好等于上限的大小允许上传', () => {
-    expect(checkFile({ size: MAX_UPLOAD_BYTES, type: 'video/mp4' })).toEqual({ ok: true });
+    expect(checkFile({ size: MAX_VIDEO_BYTES, type: 'video/mp4' })).toEqual({ ok: true });
   });
 
   it('video/mp4 且大小正常时通过', () => {

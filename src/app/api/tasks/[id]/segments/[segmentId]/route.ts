@@ -7,6 +7,7 @@
 import { NextResponse } from 'next/server';
 import { toErrorResponse } from '@/lib/errors';
 import { requireApiAnnotator } from '@/lib/server/api-guard';
+import { requireSameOrigin } from '@/lib/server/require-same-origin';
 import { getDb } from '@/lib/server/db';
 import { deleteSegment } from '@/lib/services/segment-service';
 
@@ -14,11 +15,12 @@ import { deleteSegment } from '@/lib/services/segment-service';
 export const runtime = 'nodejs';
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ id: string; segmentId: string }> },
 ) {
   try {
     const actor = await requireApiAnnotator();
+    requireSameOrigin(request);
     const { id, segmentId } = await context.params;
     deleteSegment(getDb(), actor, id, segmentId);
     return NextResponse.json({ ok: true });

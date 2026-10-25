@@ -7,6 +7,7 @@
 import { NextResponse } from 'next/server';
 import { ValidationError, toErrorResponse } from '@/lib/errors';
 import { requireApiAnnotator } from '@/lib/server/api-guard';
+import { requireSameOrigin } from '@/lib/server/require-same-origin';
 import { getDb } from '@/lib/server/db';
 import { listSegments, upsertSegment } from '@/lib/services/segment-service';
 
@@ -56,6 +57,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
     const actor = await requireApiAnnotator();
+    requireSameOrigin(request);
     const { id } = await context.params;
     const body = readUpsertBody(await readJson(request));
     return NextResponse.json({ ok: true, segment: upsertSegment(getDb(), actor, id, body) });

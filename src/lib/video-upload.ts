@@ -1,14 +1,12 @@
 /**
  * 浏览器端的视频上传：上传前预检、读取时长、带进度的 XHR 上传。
  *
- * 不引 video-service 的上限常量：该模块依赖 node:fs，被浏览器 bundle 引用会在导入期失败。
- * MAX_UPLOAD_BYTES 因此在此独立声明，改服务端上限时须同步这里。
+ * 上限与 MIME 白名单来自 lib/video-limits（纯常量模块）。
+ * 不能从 video-service 取：那个模块依赖 node:fs，被浏览器 bundle 引用会在导入期失败。
  */
+import { ACCEPTED_MIME, MAX_VIDEO_BYTES } from '@/lib/video-limits';
 
-export const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
-export const ACCEPTED_MIME = ['video/mp4'] as const;
-
-const MAX_UPLOAD_MB = MAX_UPLOAD_BYTES / 1024 / 1024;
+const MAX_UPLOAD_MB = MAX_VIDEO_BYTES / 1024 / 1024;
 const DURATION_ERROR = '无法读取视频时长，请确认文件是完整可播放的 MP4';
 
 export type FileCheck =
@@ -30,7 +28,7 @@ export type VideoSummary = {
 export function checkFile(file: { size: number; type: string }): FileCheck {
   // 空文件先判：它本来也不可能有合法时长，报「空文件」更贴近要修的事
   if (file.size <= 0) return { ok: false, reason: 'empty' };
-  if (file.size > MAX_UPLOAD_BYTES) return { ok: false, reason: 'too-large' };
+  if (file.size > MAX_VIDEO_BYTES) return { ok: false, reason: 'too-large' };
   if (!ACCEPTED_MIME.some((mime) => mime === file.type)) return { ok: false, reason: 'bad-type' };
   return { ok: true };
 }

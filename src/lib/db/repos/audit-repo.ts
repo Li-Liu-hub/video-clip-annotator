@@ -3,11 +3,8 @@
  *
  * 审计只追加：没有 update，也没有 delete —— 不提供能力比提供后靠自觉更可靠。
  */
-import { randomBytes } from 'node:crypto';
 import { nowMs, type DB } from '@/lib/db';
-
-/** 8 字节随机数 → 16 位十六进制，与 RULES 的 id 约定一致 */
-const AUDIT_ID_BYTES = 8;
+import { newId } from '@/lib/db/id';
 
 export type AuditLogInsert = {
   actorId: string | null;
@@ -27,7 +24,7 @@ export function insertAudit(db: DB, entry: AuditLogInsert): void {
     `INSERT INTO audit_logs (id, actor_id, actor_role, tenant_id, action, target_type, target_id, detail, ip, user_agent, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
-    randomBytes(AUDIT_ID_BYTES).toString('hex'),
+    newId(),
     entry.actorId,
     entry.actorRole,
     entry.tenantId,

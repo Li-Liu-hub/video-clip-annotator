@@ -10,6 +10,7 @@ import { cookies } from 'next/headers';
 import { getDb } from '@/lib/server/db';
 import { RateLimitedError, UnauthorizedError, ValidationError, toErrorResponse } from '@/lib/errors';
 import { clearFailures, isLocked, noteFailure, throttleKey } from '@/lib/server/login-throttle';
+import { requireSameOrigin } from '@/lib/server/require-same-origin';
 import { AUTH_LOGOUT_ACTION } from '@/lib/audit-actions';
 import {
   destroySession,
@@ -81,6 +82,8 @@ export async function POST(request: Request) {
   let failureKey: string | null = null;
 
   try {
+    // 登录本身没有身份可判，同源校验就是这一步唯一的来源约束
+    requireSameOrigin(request);
     const credentials = await readCredentials(request);
 
     // 先判锁再校验：被锁时连 scrypt 都不跑，拒绝必须是廉价的，否则 DoS 防线等于没做。
@@ -123,6 +126,13 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   const db = getDb();
+
+  try {
+    requireSameOrigin(request);
+  } catch (err) {
+    return errorResponse(err);
+  }
+
   const sessionId = (await cookies()).get(SESSION_COOKIE)?.value;
 
   // 幂等：没有 cookie、会话已不存在都返回 200。登出失败没有业务意义

@@ -3,7 +3,6 @@
  *
  * 不 import next/headers —— 文件根目录与数据库都由调用方注入，本层可在临时目录上单测。
  */
-import { randomBytes } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
 import { mkdir, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
@@ -11,6 +10,7 @@ import { Transform, Readable, type TransformCallback } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import { nowMs, type DB } from '@/lib/db';
+import { newId } from '@/lib/db/id';
 import {
   findById,
   findVisibleToTenant,
@@ -20,20 +20,11 @@ import {
   type VideoRow,
 } from '@/lib/db/repos/video-repo';
 import { NotFoundError, PayloadTooLargeError, ValidationError } from '@/lib/errors';
+import { MAX_VIDEO_BYTES, SUPPORTED_MIME_EXTENSIONS } from '@/lib/video-limits';
 import { isTenantUser, type SessionUser } from './auth-service';
 
-export const MAX_VIDEO_BYTES = 200 * 1024 * 1024;
-
-/** 8 字节随机数 → 16 位十六进制，与 RULES 的 id 约定一致 */
-const VIDEO_ID_BYTES = 8;
-
-/**
- * 只允许 MP4。扩展名按 MIME 推导，绝不取 x-filename 的后缀：
- * 否则 `x-filename: ../../.env` 这类输入会决定落盘路径。
- */
-const SUPPORTED_MIME_EXTENSIONS: Record<string, string | undefined> = {
-  'video/mp4': 'mp4',
-};
+// 契约要求常量从本模块导出；实现放在 lib/video-limits，客户端上传逻辑才能不引 service 而取到同一个值
+export { MAX_VIDEO_BYTES };
 
 const DEFAULT_FILENAME = '未命名.mp4';
 const UNSUPPORTED_MIME_MESSAGE = '仅支持 MP4 视频';
@@ -85,7 +76,7 @@ export async function storeVideo(
   // 声明的长度只用于快速拒绝；真正的上限按实际写出的字节数执行（见下方 Transform）
   if (input.sizeBytes > MAX_VIDEO_BYTES) throw new PayloadTooLargeError();
 
-  const id = randomBytes(VIDEO_ID_BYTES).toString('hex');
+  const id = newId();
   const storedName = `${id}.${extension}`;
   const root = videoRoot();
   const finalPath = path.join(root, storedName);

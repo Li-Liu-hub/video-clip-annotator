@@ -3,7 +3,13 @@
  * 对「不变量检查器」本身做变异验证。
  *
  * 检查器全绿只说明数据干净，不说明检查器有牙。
- * 本脚本在数据库副本上故意制造各类违规，逐一确认检查器能抓到。
+ * 本脚本在数据库副本上故意制造各类违规，逐一确认**指定的那个**检查器能抓到：
+ *   - structure：scripts/check-invariants.mjs（db:check，结构检查）
+ *   - business ：scripts/invariant-check.mjs（invariant:check，业务不变量）
+ *
+ * 为什么变异要指定检查器：两套检查器分工不同，业务不变量只有 invariant.ts 一份实现。
+ * 若变异仍只喂给旧套，就等于「合并之后新套没有任何变异验证」——
+ * 把某条规则删掉不会有任何用例变红。
  *
  * 用法：npm run db:verify-checker
  * 任何一个变异没被抓到，退出码非 0。
@@ -17,7 +23,11 @@ import Database from 'better-sqlite3';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SRC_DB = path.join(ROOT, 'data', 'app.db');
-const CHECKER = path.join(ROOT, 'scripts', 'check-invariants.mjs');
+
+const CHECKERS = {
+  structure: { script: path.join(ROOT, 'scripts', 'check-invariants.mjs'), label: 'db:check' },
+  business: { script: path.join(ROOT, 'scripts', 'invariant-check.mjs'), label: 'invariant:check' },
+};
 
 if (!fs.existsSync(SRC_DB)) {
   console.error('[verify] 找不到数据库，请先 npm run db:reset');
@@ -26,8 +36,9 @@ if (!fs.existsSync(SRC_DB)) {
 
 const mutations = [
   {
-    name: '跨租户污染',
-    expect: 'segments 的租户与所属任务一致',
+    name: '跨租户污染（片段）',
+    checker: 'business',
+    expect: '[tenant-consistency]',
     apply(db) {
       const row = db
         .prepare('SELECT s.id FROM segments s JOIN tasks t ON t.id = s.task_id LIMIT 1')
@@ -36,7 +47,67 @@ const mutations = [
     },
   },
   {
+    name: '账本净额与任务状态不符',
+    checker: 'business',
+    expect: '[ledger-sum]',
+    apply(db) {
+      const row = db.prepare("SELECT id, delta_ms FROM ledger_entries WHERE kind = 'submit' LIMIT 1").get();
+      db.prepare('UPDATE ledger_entries SET delta_ms = ? WHERE id = ?').run(row.delta_ms + 5000, row.id);
+    },
+  },
+  {
+    name: '净额被冲成负数',
+    checker: 'business',
+    expect: '[ledger-non-negative]',
+    apply(db) {
+      const row = db
+        .prepare(
+          "SELECT tenant_id, task_id, submission_id, annotator_id, delta_ms, entry_date FROM ledger_entries WHERE kind = 'submit' LIMIT 1",
+        )
+        .get();
+      db.prepare(
+        `INSERT INTO ledger_entries
+           (id, tenant_id, task_id, submission_id, annotator_id, delta_ms, entry_date, kind, created_at)
+         VALUES ('eeeeeeeeeeeeeee1', ?, ?, ?, ?, ?, ?, 'revoke', ?)`,
+      ).run(
+        row.tenant_id,
+        row.task_id,
+        row.submission_id,
+        row.annotator_id,
+        // 冲掉两倍：净额变成 -delta，符号 CHECK 仍然满足
+        -row.delta_ms * 2,
+        row.entry_date,
+        Date.now(),
+      );
+    },
+  },
+  {
+    name: '同一任务两条有效快照',
+    checker: 'business',
+    expect: '[snapshot-unique]',
+    apply(db) {
+      const row = db.prepare('SELECT * FROM submissions WHERE superseded_by IS NULL LIMIT 1').get();
+      db.prepare(
+        `INSERT INTO submissions
+           (id, task_id, tenant_id, annotator_id, submitted_at, local_date, total_ms,
+            segment_count, segments_json, superseded_by, created_at)
+         VALUES ('ccccccccccccccc1', ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+      ).run(
+        row.task_id,
+        row.tenant_id,
+        row.annotator_id,
+        row.submitted_at,
+        row.local_date,
+        row.total_ms,
+        row.segment_count,
+        row.segments_json,
+        row.created_at,
+      );
+    },
+  },
+  {
     name: '快照 total_ms 与内容不符',
+    checker: 'structure',
     expect: '提交的 total_ms 等于快照内各段之和',
     apply(db) {
       const row = db.prepare('SELECT id, total_ms FROM submissions LIMIT 1').get();
@@ -44,15 +115,8 @@ const mutations = [
     },
   },
   {
-    name: '账本净额与任务状态不符',
-    expect: '每个任务的账本净额与状态相符',
-    apply(db) {
-      const row = db.prepare("SELECT id, delta_ms FROM ledger_entries WHERE kind = 'submit' LIMIT 1").get();
-      db.prepare('UPDATE ledger_entries SET delta_ms = ? WHERE id = ?').run(row.delta_ms + 5000, row.id);
-    },
-  },
-  {
     name: '日期格式非法',
+    checker: 'structure',
     expect: 'ledger 的 entry_date 格式合法',
     apply(db) {
       const row = db.prepare('SELECT id FROM ledger_entries LIMIT 1').get();
@@ -61,6 +125,7 @@ const mutations = [
   },
   {
     name: '已提交任务缺少提交记录',
+    checker: 'structure',
     expect: '已提交任务恰有一个未被取代的提交',
     apply(db) {
       // 把提交标记为已被取代，制造「submitted 但无有效提交」
@@ -82,27 +147,31 @@ function freshCopy(tag) {
   return target;
 }
 
-function runChecker(dbPath) {
-  const r = spawnSync(process.execPath, [CHECKER], {
+function runChecker(kind, dbPath) {
+  const r = spawnSync(process.execPath, [CHECKERS[kind].script], {
     env: { ...process.env, DATABASE_PATH: dbPath },
     encoding: 'utf8',
   });
   return { code: r.status, out: `${r.stdout ?? ''}${r.stderr ?? ''}` };
 }
 
-// 基线：未变异时必须全绿
-const baseline = freshCopy('baseline');
-const base = runChecker(baseline);
-fs.rmSync(baseline, { force: true });
+// 基线：两套检查器在未变异时都必须全绿
+let passed = 0;
+const total = Object.keys(CHECKERS).length + mutations.length;
 
-console.log('[verify] 基线（未变异）');
-const baseOk = base.code === 0;
-console.log(`  ${baseOk ? 'ok ' : '!! '} 检查器在干净数据上应当全绿  — exit=${base.code}`);
-if (!baseOk) console.log(base.out);
+for (const [kind, checker] of Object.entries(CHECKERS)) {
+  const copy = freshCopy(`baseline-${kind}`);
+  const result = runChecker(kind, copy);
+  fs.rmSync(copy, { force: true });
+
+  const ok = result.code === 0;
+  console.log(`[verify] 基线（未变异）· ${checker.label}`);
+  console.log(`  ${ok ? 'ok ' : '!! '} 检查器在干净数据上应当全绿  — exit=${result.code}`);
+  if (!ok) console.log(result.out);
+  if (ok) passed += 1;
+}
 
 console.log('\n[verify] 变异验证');
-const results = [];
-
 for (const m of mutations) {
   const copy = freshCopy(m.name.slice(0, 6));
   try {
@@ -110,11 +179,13 @@ for (const m of mutations) {
     m.apply(db);
     db.close();
 
-    const r = runChecker(copy);
-    const caught = r.code !== 0 && r.out.includes(m.expect);
-    results.push({ name: m.name, caught, code: r.code });
-    console.log(`  ${caught ? 'ok ' : '!! '} ${m.name}  →  ${m.expect}`);
-    if (!caught) console.log(r.out.split('\n').filter((l) => l.includes('!!')).join('\n'));
+    const result = runChecker(m.checker, copy);
+    const caught = result.code !== 0 && result.out.includes(m.expect);
+    console.log(
+      `  ${caught ? 'ok ' : '!! '} ${m.name}  →  ${CHECKERS[m.checker].label} · ${m.expect}`,
+    );
+    if (!caught) console.log(result.out.split('\n').filter((l) => l.includes('!!')).join('\n'));
+    if (caught) passed += 1;
   } finally {
     fs.rmSync(copy, { force: true });
     fs.rmSync(`${copy}-wal`, { force: true });
@@ -122,8 +193,6 @@ for (const m of mutations) {
   }
 }
 
-const passed = results.filter((r) => r.caught).length + (baseOk ? 1 : 0);
-const total = results.length + 1;
 console.log(`\n[verify] ${passed}/${total} 通过`);
 
 if (passed !== total) {

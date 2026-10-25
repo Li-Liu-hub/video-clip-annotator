@@ -26,7 +26,7 @@ import { SHORTCUT_HINTS, formatShortcutHint } from '@/lib/shortcuts';
 import { formatDuration } from '@/lib/time';
 import type { WorkTask } from '@/lib/services/workbench-service';
 import SegmentList from './SegmentList';
-import SubmitBar from './SubmitBar';
+import SubmitBar, { WORKBENCH_STATUS_ID } from './SubmitBar';
 import Timeline from './Timeline';
 import { useHistory } from './use-history';
 import { useShortcuts } from './use-shortcuts';
@@ -561,7 +561,7 @@ export default function Workbench({ task, initialSegments, readOnly = false }: P
 
       {/* 固定高度：提示出现与消失都不推挤时间轴，标注时轨道位置不跳 */}
       <div
-        id="workbench-status"
+        id={WORKBENCH_STATUS_ID}
         className="flex h-4 items-center px-1"
         aria-live="polite"
       >

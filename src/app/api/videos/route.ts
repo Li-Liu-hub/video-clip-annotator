@@ -6,6 +6,7 @@
  */
 import { NextResponse } from 'next/server';
 import { requireApiAdmin, requireApiUser } from '@/lib/server/api-guard';
+import { requireSameOrigin } from '@/lib/server/require-same-origin';
 import { getDb } from '@/lib/server/db';
 import { ValidationError, toErrorResponse } from '@/lib/errors';
 import { listVisibleVideos, storeVideo, type UploadInput } from '@/lib/services/video-service';
@@ -87,6 +88,7 @@ function readUploadInput(request: Request): UploadInput {
 export async function POST(request: Request) {
   try {
     const actor = await requireApiAdmin();
+    requireSameOrigin(request);
     const video = await storeVideo(getDb(), actor, readUploadInput(request));
     return NextResponse.json({ ok: true, video: toSummary(video) });
   } catch (err) {

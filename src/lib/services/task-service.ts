@@ -3,8 +3,8 @@
  *
  * 不 import next/headers —— 身份与连接都由调用方注入，本层可在内存库上单测。
  */
-import { randomBytes } from 'node:crypto';
 import { nowMs, writeTx, type DB } from '@/lib/db';
+import { newId } from '@/lib/db/id';
 import {
   claimIfPending,
   countAll,
@@ -33,9 +33,6 @@ export type { TaskRow } from '@/lib/db/repos/task-repo';
 export { MAX_TITLE_LENGTH };
 
 export const PAGE_SIZE = 20;
-
-/** 8 字节随机数 → 16 位十六进制，与 RULES 的 id 约定一致 */
-const TASK_ID_BYTES = 8;
 
 
 export type TaskPage = { items: TaskRow[]; total: number; page: number; pageSize: number };
@@ -149,7 +146,7 @@ export function createTasks(
     const createdAt = nowMs();
     const ids = tenantIds.map((tenantId) => {
       if (!findTenantById(db, tenantId)) throw new NotFoundError('租户不存在');
-      const id = randomBytes(TASK_ID_BYTES).toString('hex');
+      const id = newId();
       insertTask(db, {
         id,
         tenantId,

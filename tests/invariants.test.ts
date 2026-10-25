@@ -291,7 +291,11 @@ describe('I1 五组不变量', () => {
     ).run(TENANT_A, VIDEO_ID, ADMIN_ID, NOW);
     db.pragma('ignore_check_constraints = OFF');
 
-    expect(rulesOf(findViolations(db))).toEqual(['status-claimed-pair']);
+    // 连带 snapshot-unique：这条脏任务被标成 submitted 却没有快照，
+    // 正是「提交了但没存档」那种情况。两条规则同时成立是正确行为
+    expect(rulesOf(findViolations(db)).sort()).toEqual(
+      ['snapshot-unique', 'status-claimed-pair'].sort(),
+    );
   });
 
   it('片段的租户与任务不同时报 tenant-consistency', () => {
@@ -446,6 +450,7 @@ describe('I-3 的五个合取项各自独立生效', () => {
     db.prepare('UPDATE tasks SET claimed_by = ? WHERE id = ?').run(ALICE_ID, taskId);
     db.pragma('ignore_check_constraints = OFF');
 
+    // 只该报这一条：pending 任务本来就没有快照，不该连带 snapshot-unique
     expect(rulesOf(findViolations(db))).toEqual(['status-claimed-pair']);
   });
 });

@@ -5,6 +5,7 @@
  * 修正只能靠再记一条反向条目，历史日期因此永远不会被改写。
  */
 import type { DB } from '@/lib/db';
+import type { DateRange } from '@/lib/stats-range';
 
 export type LedgerEntryInsert = {
   id: string;
@@ -19,9 +20,6 @@ export type LedgerEntryInsert = {
   kind: 'submit' | 'revoke';
   createdAt: number;
 };
-
-/** 统计区间：闭区间，两端都是落库即定型的 YYYY-MM-DD。 */
-export type DateRange = { from: string; to: string };
 
 export type DayTotal = { date: string; totalMs: number; entryCount: number };
 export type AnnotatorTotal = {

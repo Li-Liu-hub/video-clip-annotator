@@ -7,6 +7,7 @@
 import { NextResponse } from 'next/server';
 import { ValidationError, toErrorResponse } from '@/lib/errors';
 import { requireApiAdmin } from '@/lib/server/api-guard';
+import { requireSameOrigin } from '@/lib/server/require-same-origin';
 import { getDb } from '@/lib/server/db';
 import { rejectTask } from '@/lib/services/review-service';
 
@@ -38,6 +39,7 @@ function readReason(payload: unknown): string {
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
     const actor = await requireApiAdmin();
+    requireSameOrigin(request);
     const { id } = await context.params;
     rejectTask(getDb(), actor, id, readReason(await readJson(request)));
     return NextResponse.json({ ok: true });

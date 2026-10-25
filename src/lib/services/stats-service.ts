@@ -9,11 +9,11 @@ import {
   dailyTotals,
   taskTotals,
   type AnnotatorTotal,
-  type DateRange,
   type DayTotal,
   type TaskTotal,
 } from '@/lib/db/repos/ledger-repo';
 import { ForbiddenError, ValidationError } from '@/lib/errors';
+import type { DateRange } from '@/lib/stats-range';
 import { isTenantUser, type SessionUser } from './auth-service';
 
 export type { AnnotatorTotal, DayTotal, TaskTotal };

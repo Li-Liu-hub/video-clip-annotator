@@ -3,21 +3,17 @@
  *
  * 状态跃迁、账本冲正、审计三者共用一个事务 —— 少任何一个都会留下对不上的数字或断链的追溯。
  */
-import { randomBytes } from 'node:crypto';
 import { nowMs, writeTx, type DB } from '@/lib/db';
+import { newId } from '@/lib/db/id';
 import { insertEntry } from '@/lib/db/repos/ledger-repo';
 import { findCurrentByTask } from '@/lib/db/repos/submission-repo';
-import {
-  findById,
-  findByIdForTenant,
-  rejectIfSubmitted,
-  reopenIfRejected,
-} from '@/lib/db/repos/task-repo';
+import { findById, rejectIfSubmitted, reopenIfRejected } from '@/lib/db/repos/task-repo';
 import { NotFoundError, StateConflictError, ValidationError } from '@/lib/errors';
 import { AUDIT_ACTIONS } from '@/lib/audit-actions';
 import { MAX_REASON_LENGTH } from '@/lib/review-limits';
 import { writeAudit } from './audit-service';
 import type { SessionUser, TenantUser } from './auth-service';
+import { requireOwnedTask } from './segment-service';
 
 // 契约要求常量从本模块导出；实现放在 lib/review-limits，客户端表单才能不引 service 而取到同一个值
 export { MAX_REASON_LENGTH };
@@ -26,9 +22,6 @@ const TASK_NOT_FOUND_MESSAGE = '任务不存在';
 const REJECT_CONFLICT_MESSAGE = '任务当前状态不允许退回';
 const BROKEN_SUBMISSION_MESSAGE = '这条任务缺少有效的提交记录，暂不能退回';
 const EMPTY_REASON_MESSAGE = '请填写退回原因';
-
-/** 8 字节随机数 → 16 位十六进制，与 RULES 的 id 约定一致 */
-const LEDGER_ID_BYTES = 8;
 
 /**
  * 退回一条已提交的任务。
@@ -59,7 +52,7 @@ export function rejectTask(db: DB, actor: SessionUser, taskId: string, reason: s
     if (!submission) throw new StateConflictError(BROKEN_SUBMISSION_MESSAGE);
 
     insertEntry(db, {
-      id: randomBytes(LEDGER_ID_BYTES).toString('hex'),
+      id: newId(),
       tenantId: task.tenant_id,
       taskId,
       submissionId: submission.id,
@@ -107,12 +100,9 @@ export function reopenTask(db: DB, actor: TenantUser, taskId: string): void {
   writeTx(db, () => {
     // 先判归属再判状态，与其余四个动作一致：
     // 顺序反了，「别人的任务」会被报成 409，等于承认这条任务存在。
-    // 用 findByIdForTenant 而不是 findById：跨租户由 SQL 直接过滤成「查不到」，
+    // 归属判定只有 requireOwnedTask 一份：跨租户由它的 SQL 过滤成「查不到」，
     // 不在 JS 里再判一次租户 —— 少一处可能与 SQL 不一致的判断
-    const task = findByIdForTenant(db, taskId, actor.tenantId);
-    if (!task || task.claimed_by !== actor.id) {
-      throw new NotFoundError(TASK_NOT_FOUND_MESSAGE);
-    }
+    const task = requireOwnedTask(db, actor, taskId);
 
     // 只看 changes：并发下两个请求同时重新打开，只有一个能成
     if (!reopenIfRejected(db, { taskId, tenantId: task.tenant_id, userId: actor.id, nowMs: nowMs() })) {
