@@ -36,6 +36,9 @@ type Props = {
    * 得一路 Tab 回列表（G5）。seq 是触发信号 —— 同一个目标连续请求也要重新聚焦。
    */
   focusRequest?: { targetId: string | null; seq: number } | null;
+  /** 审核时点击即播放，并为超出素材范围的旧快照提示异常。 */
+  playOnSelect?: boolean;
+  playbackDurationMs?: number;
 };
 
 export default function SegmentList({
@@ -47,6 +50,8 @@ export default function SegmentList({
   busy,
   readOnly = false,
   focusRequest = null,
+  playOnSelect = false,
+  playbackDurationMs,
 }: Props) {
   const listRef = useRef<HTMLUListElement | null>(null);
   const emptyRef = useRef<HTMLParagraphElement | null>(null);
@@ -95,6 +100,8 @@ export default function SegmentList({
                   else rowRefs.current.delete(segment.id);
                 }}
                 onClick={() => onSelect(segment.id)}
+                aria-label={playOnSelect ? `播放片段 ${index + 1}${segment.label ? ` · ${segment.label}` : ''}` : undefined}
+                disabled={playbackDurationMs !== undefined && segment.startMs >= playbackDurationMs}
                 // 选中态不能只靠左侧竖条与底色表达：屏幕阅读器完全读不到颜色
                 aria-current={selected ? 'true' : undefined}
                 className="flex min-w-0 flex-1 items-center gap-2.5 py-1 pr-1 pl-2 text-left"
@@ -108,6 +115,11 @@ export default function SegmentList({
                   {segment.label ? (
                     <span className="block truncate text-[11px] leading-4 text-ink-dim">
                       {segment.label}
+                    </span>
+                  ) : null}
+                  {playbackDurationMs !== undefined && segment.endMs > playbackDurationMs ? (
+                    <span className="block text-[11px] leading-4 text-warn">
+                      {segment.startMs >= playbackDurationMs ? '片段起点已超出素材范围，无法播放，请退回核对。' : '片段终点超出素材范围，播放至视频末尾，请退回核对。'}
                     </span>
                   ) : null}
                 </span>

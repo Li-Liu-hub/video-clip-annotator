@@ -136,6 +136,12 @@ export function countByTenantIds(db: DB, tenantIds: string[]): Map<string, numbe
   return counts;
 }
 
+/** 发布时展开某个空间的现有任务，按租户过滤并分页，避免首屏载入全部任务。 */
+export function listForTenant(db: DB, tenantId: string, options: ListOptions): TaskRow[] {
+  return db.prepare(`${TASK_SELECT} WHERE t.tenant_id = ? ${TASK_ORDER} LIMIT ? OFFSET ?`)
+    .all(tenantId, options.limit, options.offset) as TaskRow[];
+}
+
 /**
  * 带租户条件的单条查询。
  *

@@ -55,6 +55,10 @@ const D_1002 = '2026-10-02';
 
 /** 测试默认区间：跨月查询，含数据日与空日 */
 const RANGE = { from: D_1001, to: '2026-10-31' };
+const ALICE_DETAILS = [
+  { annotatorId: ALICE_ID, displayName: '林小雨', date: D_1001, taskId: T_A1, title: '任务甲', totalMs: 1_000, entryCount: 1, segmentCount: 1, submitCount: 1, revokeCount: 0 },
+  { annotatorId: ALICE_ID, displayName: '林小雨', date: D_1001, taskId: T_A2, title: '任务乙', totalMs: 2_000, entryCount: 1, segmentCount: 1, submitCount: 1, revokeCount: 0 },
+];
 
 const PASSWORD_HASH = 'scrypt$00$00';
 
@@ -372,13 +376,34 @@ describe('按日聚合', () => {
 });
 
 describe('按人聚合', () => {
-  it('各标注员的总量正确，且按 totalMs 降序', () => {
+  it('同一个人在不同日期提交同一个任务时分开列出', () => {
+    addSubmitChain({ submissionId: S_6, taskId: T_A1, tenantId: TENANT_A, annotatorId: ALICE_ID, localDate: D_1002, deltaMs: 3_000 });
+    expect(stats(ALICE, 'annotator').rows).toEqual([
+      { ...ALICE_DETAILS[0], date: D_1002, totalMs: 3_000 }, ...ALICE_DETAILS,
+    ]);
+  });
+
+  it('一次提交有三个片段时有效片段数为三，冲正后归零', () => {
+    db.prepare('UPDATE submissions SET segment_count = 3 WHERE id = ?').run(S_3);
+    expect(stats(PEER, 'annotator').rows[0]).toMatchObject({ segmentCount: 0, submitCount: 1, revokeCount: 1, totalMs: 0 });
+  });
+
+  it('有效片段数读取提交快照数量而非账本行数', () => {
+    db.prepare('UPDATE submissions SET segment_count = 3 WHERE id = ?').run(S_1);
+    expect(stats(ALICE, 'annotator').rows[0]).toMatchObject({ segmentCount: 3, entryCount: 1 });
+  });
+
+  it('按人明细同样挡住属于其他租户但标注员为自己的账目', () => {
+    addEntry({ taskId: T_B1, tenantId: TENANT_B, annotatorId: ALICE_ID, submissionId: S_B1, deltaMs: 9_000, entryDate: D_1001, kind: 'submit' });
+    expect(stats(ALICE, 'annotator').rows).toEqual(ALICE_DETAILS);
+  });
+  it('按区间总量排列人员，人员内拆分日期和任务', () => {
     expect(stats(ADMIN, 'annotator')).toEqual({
       dimension: 'annotator',
       rows: [
-        { annotatorId: BOB_ID, displayName: '陈默', totalMs: 8_000, entryCount: 1 },
-        { annotatorId: ALICE_ID, displayName: '林小雨', totalMs: 3_000, entryCount: 2 },
-        { annotatorId: PEER_ID, displayName: '周予安', totalMs: 0, entryCount: 2 },
+        { annotatorId: BOB_ID, displayName: '陈默', date: D_1001, taskId: T_B1, title: '任务丁', totalMs: 8_000, entryCount: 1, segmentCount: 1, submitCount: 1, revokeCount: 0 },
+        ...ALICE_DETAILS,
+        { annotatorId: PEER_ID, displayName: '周予安', date: D_1002, taskId: T_A3, title: '任务丙', totalMs: 0, entryCount: 2, segmentCount: 0, submitCount: 1, revokeCount: 1 },
       ],
     });
   });
@@ -429,10 +454,10 @@ describe('租户与角色隔离', () => {
     expect(stats(ADMIN, 'day').rows[0]).toEqual({ date: D_1001, totalMs: 11_000, entryCount: 3 });
   });
 
-  it('标注员按人只出自己的那一行', () => {
+  it('标注员按人只出自己的任务明细', () => {
     expect(stats(ALICE, 'annotator')).toEqual({
       dimension: 'annotator',
-      rows: [{ annotatorId: ALICE_ID, displayName: '林小雨', totalMs: 3_000, entryCount: 2 }],
+      rows: ALICE_DETAILS,
     });
   });
 
@@ -552,7 +577,7 @@ describe('GET /api/stats', () => {
     });
   });
 
-  it('标注员按人查询只看到自己一行', async () => {
+  it('标注员按人查询只看到自己的明细', async () => {
     vi.mocked(getCurrentUser).mockResolvedValue(ALICE);
     const res = await statsGet(request(`?dim=annotator&from=${D_1001}&to=${D_1002}`));
     expect({ status: res.status, body: await res.json() }).toEqual({
@@ -560,7 +585,7 @@ describe('GET /api/stats', () => {
       body: {
         ok: true,
         dimension: 'annotator',
-        rows: [{ annotatorId: ALICE_ID, displayName: '林小雨', totalMs: 3_000, entryCount: 2 }],
+        rows: ALICE_DETAILS,
       },
     });
   });

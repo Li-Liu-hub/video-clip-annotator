@@ -13,6 +13,7 @@ import { useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { withBasePath } from '@/lib/base-path';
 import { MAX_TITLE_LENGTH } from '@/lib/task-limits';
 import { formatDuration } from '@/lib/time';
+import TenantTasks from './TenantTasks';
 
 export type VideoOption = {
   id: string;
@@ -180,14 +181,15 @@ export default function TaskForm({ videos, tenants, initialVideoId = null }: Tas
             {tenants.map((tenant) => {
               const checked = tenantIds.includes(tenant.id);
               return (
-                <label
+                <div
                   key={tenant.id}
-                  className={`flex cursor-pointer items-center justify-between gap-3 rounded-lg border px-3 py-2.5 transition-colors ${
+                  className={`rounded-lg border transition-colors ${
                     checked
                       ? 'border-accent-2/60 bg-accent-soft/25'
                       : 'border-line-soft bg-panel-2/30 hover:border-line'
                   }`}
                 >
+                <label className="flex cursor-pointer items-center justify-between gap-3 px-3 py-2.5">
                   <span className="flex min-w-0 items-center gap-2.5">
                     <input
                       type="checkbox"
@@ -201,6 +203,8 @@ export default function TaskForm({ videos, tenants, initialVideoId = null }: Tas
                     {tenant.taskCount} 条任务
                   </span>
                 </label>
+                <TenantTasks tenantId={tenant.id} tenantName={tenant.name} videoId={videoId} />
+                </div>
               );
             })}
           </div>

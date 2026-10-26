@@ -25,15 +25,16 @@ async function readJson(request: Request): Promise<unknown> {
   }
 }
 
-/** 只取 reason 一个字段；其余字段一律忽略，避免调用方以为它们能生效。 */
-function readReason(payload: unknown): string {
+/** 审核页携带已看的提交版本，旧列表仍可只传原因。 */
+function readInput(payload: unknown): { reason: string; submissionId?: string } {
   if (typeof payload !== 'object' || payload === null) {
     throw new ValidationError(INVALID_BODY_MESSAGE);
   }
-  const { reason } = payload as Record<string, unknown>;
+  const { reason, submissionId } = payload as Record<string, unknown>;
   // 空串留给 service 判：那里是「退回原因」唯一知道该多长的层
   if (typeof reason !== 'string') throw new ValidationError(INVALID_BODY_MESSAGE);
-  return reason;
+  if (submissionId !== undefined && typeof submissionId !== 'string') throw new ValidationError(INVALID_BODY_MESSAGE);
+  return { reason, submissionId };
 }
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
@@ -41,7 +42,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const actor = await requireApiAdmin();
     requireSameOrigin(request);
     const { id } = await context.params;
-    rejectTask(getDb(), actor, id, readReason(await readJson(request)));
+    const input = readInput(await readJson(request));
+    rejectTask(getDb(), actor, id, input.reason, input.submissionId);
     return NextResponse.json({ ok: true });
   } catch (err) {
     const { status, body } = toErrorResponse(err);

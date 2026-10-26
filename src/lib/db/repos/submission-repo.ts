@@ -37,6 +37,16 @@ export type SubmissionInsert = {
   createdAt: number;
 };
 
+/** 管理员审核已确认任务归属后，按租户读取该任务全部冻结快照。 */
+export function listForReview(db: DB, tenantId: string, taskId: string): (SubmissionRow & { display_name: string })[] {
+  return db.prepare(
+    `SELECT s.*, u.display_name FROM submissions s
+       JOIN users u ON u.id = s.annotator_id
+      WHERE s.task_id = ? AND s.tenant_id = ?
+      ORDER BY (s.superseded_by IS NULL) DESC, s.submitted_at DESC, s.created_at DESC, s.id DESC`,
+  ).all(taskId, tenantId) as (SubmissionRow & { display_name: string })[];
+}
+
 /** better-sqlite3 把约束失败挂在 err.code 上。RULES 要求在 repo 层译成领域错误。 */
 function isConstraintViolation(err: unknown): boolean {
   return (

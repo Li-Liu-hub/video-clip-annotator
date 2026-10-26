@@ -35,7 +35,7 @@ export default async function StatsPage({ searchParams }: Props) {
   const today = todayIn(user.timezone);
   const { range, adjusted } = resolveRange(params.from, params.to, today);
   const result = listStats(getDb(), user, {
-    dimension: normalizeDimension(params.dim),
+    dimension: normalizeDimension(params.dim, user.role === 'admin'),
     from: range.from,
     to: range.to,
   });

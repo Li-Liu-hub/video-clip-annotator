@@ -55,12 +55,18 @@ function toTable(result: StatsResult): {
       };
     case 'annotator':
       return {
-        headers: ['标注员ID', '姓名', '总时长(毫秒)', '总时长(秒)', '条目数'],
+        headers: ['标注员ID', '姓名', '提交日期', '任务ID', '任务', '有效片段数', '总时长(毫秒)', '总时长(秒)', '提交次数', '退回次数', '账本条目数'],
         rows: result.rows.map((row) => [
           row.annotatorId,
           row.displayName,
+          row.date,
+          row.taskId,
+          row.title,
+          row.segmentCount,
           row.totalMs,
           toSeconds(row.totalMs),
+          row.submitCount,
+          row.revokeCount,
           row.entryCount,
         ]),
       };

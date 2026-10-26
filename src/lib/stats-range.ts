@@ -90,8 +90,9 @@ function isDimension(value: string): value is StatsDimension {
  * URL 的 dim 归一。非法或缺失一律回 day：
  * 为一次手改的查询串显示错误页，比显示默认视图更糟（/admin/tasks 对 status 同样处理）。
  */
-export function normalizeDimension(raw: string | string[] | undefined): StatsDimension {
+export function normalizeDimension(raw: string | string[] | undefined, isAdmin = true): StatsDimension {
   const value = firstOf(raw);
+  if (!isAdmin && value === 'annotator') return 'day';
   return value !== undefined && isDimension(value) ? value : 'day';
 }
 

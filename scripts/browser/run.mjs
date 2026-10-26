@@ -27,7 +27,7 @@ const BASE = `http://127.0.0.1:${PORT}${BASE_PATH}`;
 const SHOT_DIR = process.env.SHOT_DIR ?? fs.mkdtempSync(path.join(os.tmpdir(), 'vsap-shots-'));
 const SCRIPTS = (
   process.env.BROWSER_SCRIPTS ??
-  'browser-check.py,browser-polish.py,browser-a11y.py,browser-navigation.py'
+  'browser-check.py,browser-polish.py,browser-a11y.py,browser-navigation.py,browser-management.py'
 )
   .split(',')
   .map((name) => name.trim())
@@ -85,13 +85,19 @@ function freshDbPath() {
 
 function cleanupDb(file) {
   for (const suffix of ['', '-wal', '-shm']) fs.rmSync(`${file}${suffix}`, { force: true });
+  const videos = `${file}-videos`;
+  // 只清理由本 runner 命名的临时素材目录，不能触碰运行库的上传文件。
+  if (path.dirname(videos) !== path.resolve(os.tmpdir()) || !path.basename(videos).startsWith('vsap-browser-')) {
+    throw new Error('浏览器临时素材目录越界');
+  }
+  fs.rmSync(videos, { recursive: true, force: true });
 }
 
 async function runOne(python, script) {
   const dbPath = freshDbPath();
   const seed = spawnSync(process.execPath, [path.join(ROOT, 'scripts', 'setup.mjs'), '--reset'], {
     cwd: ROOT,
-    env: { ...process.env, DATABASE_PATH: dbPath, DEMO_LOGIN: '1' },
+    env: { ...process.env, DATABASE_PATH: dbPath, VIDEO_DIR: `${dbPath}-videos`, DEMO_LOGIN: '1' },
     stdio: 'ignore',
   });
   if (seed.status !== 0) {
@@ -105,7 +111,7 @@ async function runOne(python, script) {
     [path.join(ROOT, 'node_modules', 'next', 'dist', 'bin', 'next'), 'start', '-p', String(PORT)],
     {
       cwd: ROOT,
-      env: { ...process.env, DATABASE_PATH: dbPath },
+      env: { ...process.env, DATABASE_PATH: dbPath, VIDEO_DIR: `${dbPath}-videos` },
       stdio: 'ignore',
     },
   );
@@ -123,6 +129,8 @@ async function runOne(python, script) {
           APP_BASE_PATH: BASE_PATH,
           DB_PATH: dbPath,
           SHOT_DIR,
+          PYTHONUTF8: '1',
+          PYTHONIOENCODING: 'utf-8',
         },
         stdio: 'inherit',
       });

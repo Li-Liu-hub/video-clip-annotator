@@ -44,6 +44,7 @@ type TaskListProps = {
   canReject?: boolean;
   /** 从标注员第 N 页进入工作台时携带同一页码，不使用任意返回 URL。 */
   returnPage?: number;
+  reviewStatus?: 'submitted' | 'rejected';
 };
 
 type TaskPagerProps = {
@@ -99,6 +100,7 @@ export default function TaskList({
   currentUser,
   canReject = false,
   returnPage = 1,
+  reviewStatus,
 }: TaskListProps) {
   const [rows, setRows] = useState<Record<string, RowUi>>({});
   /** 正在填退回原因的任务 id；null 表示没有展开的输入区 */
@@ -393,6 +395,13 @@ export default function TaskList({
                                 </button>
                               ) : null}
                             </>
+                          ) : null}
+
+                          {canReject && status === 'submitted' ? (
+                            <Link className="btn btn-quiet" href={`/admin/tasks/${task.id}/review?returnPage=${returnPage}${reviewStatus ? `&status=${reviewStatus}` : ''}`}>审核提交</Link>
+                          ) : null}
+                          {canReject && status === 'rejected' ? (
+                            <Link className="btn btn-quiet" href={`/admin/tasks/${task.id}/review?returnPage=${returnPage}${reviewStatus ? `&status=${reviewStatus}` : ''}`}>查看提交</Link>
                           ) : null}
 
                           {canReject && status === 'submitted' ? (

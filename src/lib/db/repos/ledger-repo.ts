@@ -25,6 +25,12 @@ export type DayTotal = { date: string; totalMs: number; entryCount: number };
 export type AnnotatorTotal = {
   annotatorId: string;
   displayName: string;
+  date: string;
+  taskId: string;
+  title: string;
+  segmentCount: number;
+  submitCount: number;
+  revokeCount: number;
   totalMs: number;
   entryCount: number;
 };
@@ -123,9 +129,8 @@ export function dailyTotals(
 }
 
 /**
- * 按人聚合。名字从 users 表 join，没有记录的人不出现在结果里（INNER JOIN）。
- *
- * 排序在 SQL 里：两个视图各排一次必然漂移；同额时补 annotator_id DESC 只为次序稳定。
+ * 按人、提交日与任务拆分；人数排名仍按区间净时长，人员内部按日期与任务排序。
+ * 片段数随对应账本条目加减，不能把一次提交或一次冲正误算为一个视频片段。
  */
 export function annotatorTotals(
   db: DB,
@@ -139,13 +144,22 @@ export function annotatorTotals(
     .prepare(
       `SELECT l.annotator_id        AS annotatorId,
               u.display_name        AS displayName,
+              l.entry_date          AS date,
+              l.task_id             AS taskId,
+              t.title               AS title,
+              SUM(CASE WHEN l.kind = 'submit' THEN s.segment_count ELSE -s.segment_count END) AS segmentCount,
+              SUM(CASE WHEN l.kind = 'submit' THEN 1 ELSE 0 END) AS submitCount,
+              SUM(CASE WHEN l.kind = 'revoke' THEN 1 ELSE 0 END) AS revokeCount,
               SUM(l.delta_ms)       AS totalMs,
               COUNT(*)              AS entryCount
          FROM ledger_entries l
          JOIN users u ON u.id = l.annotator_id
+         JOIN tasks t ON t.id = l.task_id
+         JOIN submissions s ON s.id = l.submission_id
         WHERE ${scope.sql}
-        GROUP BY l.annotator_id, u.display_name
-        ORDER BY totalMs DESC, l.annotator_id DESC`,
+        GROUP BY l.annotator_id, u.display_name, l.entry_date, l.task_id, t.title
+        ORDER BY SUM(SUM(l.delta_ms)) OVER (PARTITION BY l.annotator_id) DESC,
+                 l.annotator_id DESC, l.entry_date DESC, l.task_id ASC`,
     )
     .all(...scope.params) as AnnotatorTotal[];
 }

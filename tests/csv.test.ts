@@ -308,6 +308,17 @@ describe('GET /api/stats/export', () => {
   });
 });
 
+describe('按人明细导出', () => {
+  it('人员日期任务及片段数逐列输出并保留标题公式防护', async () => {
+    vi.mocked(getCurrentUser).mockResolvedValue(ALICE);
+    const res = await exportGet(request(`dim=annotator&${RANGE_QUERY}`));
+    expect(linesOf(await res.text())).toEqual([
+      '标注员ID,姓名,提交日期,任务ID,任务,有效片段数,总时长(毫秒),总时长(秒),提交次数,退回次数,账本条目数',
+      `${ALICE_ID},林小雨,${D_1001},${T_FORMULA},'=1+1,1,5700,5.7,1,0,1`,
+    ]);
+  });
+});
+
 describe('公式前缀与引号的顺序', () => {
   it('含逗号的公式载荷：前缀落在引号内，内部引号翻倍', () => {
     // 唯一能区分「先加前缀再包引号」与「先包引号再加前缀」的用例：

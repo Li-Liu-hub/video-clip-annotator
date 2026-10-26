@@ -28,7 +28,7 @@ const EMPTY_REASON_MESSAGE = '请填写退回原因';
  * 状态 → rejected，并写一条 revoke 冲正（entry_date 取原提交日）。
  * 调用方必须已确认是管理员。
  */
-export function rejectTask(db: DB, actor: SessionUser, taskId: string, reason: string): void {
+export function rejectTask(db: DB, actor: SessionUser, taskId: string, reason: string, expectedSubmissionId?: string): void {
   const trimmed = reason.trim();
   // 按 trim 后计数：全是空格的原因等于没写，标注员退回后仍不知道该改什么
   if (trimmed.length === 0) throw new ValidationError(EMPTY_REASON_MESSAGE);
@@ -50,6 +50,10 @@ export function rejectTask(db: DB, actor: SessionUser, taskId: string, reason: s
     const submission = findCurrentByTask(db, taskId);
     // 状态是 submitted 却找不到有效快照，说明数据被改坏了；抛出后上面那次状态更新一并回滚
     if (!submission) throw new StateConflictError(BROKEN_SUBMISSION_MESSAGE);
+    // 审核期间若已产生新提交，回滚状态更新，防止退回未看过的新版本。
+    if (expectedSubmissionId !== undefined && submission.id !== expectedSubmissionId) {
+      throw new StateConflictError('提交版本已更新，请刷新后重新审核');
+    }
 
     insertEntry(db, {
       id: newId(),

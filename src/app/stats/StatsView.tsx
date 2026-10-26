@@ -25,7 +25,7 @@ const DIMENSION_TABS: readonly { value: StatsDimension; label: string }[] = [
 /** 表头按维度穷举。列的顺序即「先看什么」：主列在最左，次数在时长右侧。 */
 const COLUMNS: Record<StatsDimension, readonly string[]> = {
   day: ['日期', '总时长', '条目数'],
-  annotator: ['姓名', '总时长', '条目数'],
+  annotator: ['姓名', '提交日期', '任务', '有效片段数', '净时长', '提交次数', '退回次数'],
   task: ['任务', '总时长', '提交次数', '退回次数'],
 };
 
@@ -59,7 +59,7 @@ export default function StatsView({ result, range, today, isAdmin, rangeAdjusted
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <nav className="flex items-center gap-2" aria-label="统计视图">
-          {DIMENSION_TABS.map((tab) => (
+          {DIMENSION_TABS.filter((tab) => isAdmin || tab.value !== 'annotator').map((tab) => (
             <Link
               key={tab.value}
               href={`/stats?${queryOf(tab.value, range)}`}
@@ -131,9 +131,8 @@ export default function StatsView({ result, range, today, isAdmin, rangeAdjusted
         </p>
       ) : null}
 
-      {/* 标注员的「按人」只有自己一行，说一句比让人怀疑数据缺失好 */}
-      {dimension === 'annotator' && !isAdmin ? (
-        <p className="text-[11.5px] text-ink-faint">你只能看到自己的数据</p>
+      {dimension === 'annotator' ? (
+        <p className="text-[11.5px] text-ink-faint">按人、提交日期和任务拆分；有效片段数与时长均扣除已退回的提交。</p>
       ) : null}
 
       {isEmpty ? (
@@ -175,10 +174,18 @@ export default function StatsView({ result, range, today, isAdmin, rangeAdjusted
 
                   {result.dimension === 'annotator'
                     ? result.rows.map((row) => (
-                        <tr key={row.annotatorId} className={ROW_CLASS}>
+                        <tr key={`${row.annotatorId}_${row.date}_${row.taskId}`} className={ROW_CLASS}>
                           <td className="px-4 py-2.5 text-[12.5px] text-ink">{row.displayName}</td>
+                          <td className={`${CELL_CLASS} whitespace-nowrap`}>{row.date}</td>
+                          <td className={CELL_CLASS}>
+                            {isAdmin ? (
+                              <Link className="text-accent hover:underline" href={`/admin/tasks/${row.taskId}/review?date=${row.date}`}>{row.title}</Link>
+                            ) : row.title}
+                          </td>
+                          <td className={CELL_CLASS}>{row.segmentCount}</td>
                           <td className={CELL_CLASS}>{formatHumanDuration(row.totalMs)}</td>
-                          <td className={CELL_CLASS}>{row.entryCount}</td>
+                          <td className={CELL_CLASS}>{row.submitCount}</td>
+                          <td className={CELL_CLASS}>{row.revokeCount}</td>
                         </tr>
                       ))
                     : null}

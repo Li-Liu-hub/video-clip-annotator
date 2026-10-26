@@ -14,6 +14,7 @@ import type { SessionUser, TenantUser } from '@/lib/services/auth-service';
 import { MAX_REASON_LENGTH, rejectTask, reopenTask } from '@/lib/services/review-service';
 import { reopenIfRejected } from '@/lib/db/repos/task-repo';
 import { submitTask } from '@/lib/services/submit-service';
+import { getTaskReview } from '@/lib/services/review-query-service';
 
 // 403 / 401 / 400 用例需要伪造请求上下文；其余用例直接调 service，不经过这一层
 vi.mock('@/lib/server/current-user', () => ({ getCurrentUser: vi.fn() }));
@@ -70,6 +71,27 @@ const ALICE: TenantUser = {
 };
 
 let db: DB;
+
+describe('审核提交快照', () => {
+  it('审核读取冻结快照，即使草稿已改变也不影响提交内容', () => {
+    db.prepare('UPDATE submissions SET segments_json = ? WHERE task_id = ?').run(JSON.stringify([{ startMs: 1000, endMs: 5000, label: '已提交标签' }]), T_SUBMITTED);
+    db.prepare('INSERT INTO segments (id, task_id, tenant_id, start_ms, end_ms, label, created_at) VALUES (?, ?, ?, 10000, 12000, ?, 0)').run('9999999999999999', T_SUBMITTED, TENANT_A, '修改后的草稿');
+    expect(getTaskReview(db, ADMIN, T_SUBMITTED).submissions[0].segments).toEqual([{ startMs: 1000, endMs: 5000, label: '已提交标签' }]);
+  });
+  it('标注员不能进入管理员快照查询', () => {
+    expect(() => getTaskReview(db, ALICE, T_SUBMITTED)).toThrow('没有权限');
+  });
+  it('快照损坏时显示明确错误而非空列表', () => {
+    db.prepare('UPDATE submissions SET segments_json = ? WHERE task_id = ?').run('invalid', T_SUBMITTED);
+    expect(() => getTaskReview(db, ADMIN, T_SUBMITTED)).toThrow('提交片段记录无法读取');
+  });
+  it('过期审核不能退回另一个提交版本且状态回滚', () => {
+    try { rejectTask(db, ADMIN, T_SUBMITTED, REASON, SUB_OLD); } catch { /* 下方核对所有写入均未发生。 */ }
+    expect({ state: stateOf(T_SUBMITTED), ledger: countLedger(), audit: countAllAudit() }).toEqual({
+      state: { status: 'submitted', reject_reason: null }, ledger: 1, audit: 0,
+    });
+  });
+});
 
 function seed(): DB {
   const fresh = createDb(':memory:');

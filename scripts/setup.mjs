@@ -16,7 +16,7 @@ import { seedDatabase } from './seed.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DATA_DIR = path.join(ROOT, 'data');
-const VIDEO_DIR = path.join(DATA_DIR, 'videos');
+const VIDEO_DIR = path.resolve(process.env.VIDEO_DIR ?? path.join(DATA_DIR, 'videos'));
 const DB_PATH = process.env.DATABASE_PATH ?? path.join(DATA_DIR, 'app.db');
 const SCHEMA_PATH = path.join(ROOT, 'src', 'lib', 'db', 'schema.sql');
 /**

@@ -14,6 +14,7 @@ import {
   insertTask,
   listAll,
   listForAnnotator,
+  listForTenant,
   releaseIfOwned,
   type ListOptions,
   type TaskRow,
@@ -103,6 +104,18 @@ export function listTenantOptions(db: DB): TenantOption[] {
     name: tenant.name,
     taskCount: counts.get(tenant.id) ?? 0,
   }));
+}
+
+/** 只有管理员能展开空间任务，包含待领取与全部已有归属的任务。 */
+export function listTenantTasks(db: DB, actor: SessionUser, tenantId: string, page: number): TaskPage {
+  if (actor.role !== 'admin') throw new ForbiddenError();
+  if (!findTenantById(db, tenantId)) throw new NotFoundError('工作空间不存在');
+  const current = Number.isInteger(page) && page >= 1 ? page : 1;
+  return {
+    items: listForTenant(db, tenantId, { limit: PAGE_SIZE, offset: (current - 1) * PAGE_SIZE }),
+    total: countByTenantIds(db, [tenantId]).get(tenantId) ?? 0,
+    page: current, pageSize: PAGE_SIZE,
+  };
 }
 
 /** 校验全部输入；返回去重后的租户与规整后的标题，调用方直接用于写入。 */

@@ -17,6 +17,7 @@
  */
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import VideoPlayer, { VideoSegmentsPanel } from '@/components/video-player';
 import { totalDuration } from '@/lib/interval';
 import { withBasePath } from '@/lib/base-path';
 import type { Segment } from '@/lib/segment-interval';
@@ -29,30 +30,12 @@ import {
   parseSingleKeyShortcuts,
   serializeSingleKeyShortcuts,
 } from '@/lib/shortcut-prefs';
-import { formatDuration } from '@/lib/time';
 import type { WorkTask } from '@/lib/services/workbench-service';
 import SegmentList from './SegmentList';
 import SubmitBar, { WORKBENCH_STATUS_ID } from './SubmitBar';
 import Timeline from './Timeline';
 import { useHistory } from './use-history';
 import { useShortcuts } from './use-shortcuts';
-
-function PlayIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-      <path d="M3.5 2.2v7.6l6.2-3.8-6.2-3.8Z" fill="currentColor" />
-    </svg>
-  );
-}
-
-function PauseIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-      <rect x="3" y="2.2" width="2.2" height="7.6" rx="0.6" fill="currentColor" />
-      <rect x="6.8" y="2.2" width="2.2" height="7.6" rx="0.6" fill="currentColor" />
-    </svg>
-  );
-}
 
 type Props = { task: WorkTask; initialSegments: SegmentRow[]; readOnly?: boolean };
 
@@ -553,54 +536,10 @@ export default function Workbench({ task, initialSegments, readOnly = false }: P
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-4 lg:flex-row">
-        <section
-          className="panel min-w-0 flex-1 overflow-hidden"
-          aria-label="视频"
-        >
-          {/* 固定 16:9 舞台 + object-contain：非 16:9 素材左右留 void 底色，不拉伸变形 */}
-          <div className="relative flex aspect-video items-center justify-center bg-void">
-            <video
-              key={task.id}
-              ref={videoRef}
-              src={task.streamUrl}
-              preload="metadata"
-              playsInline
-              className="h-full w-full object-contain"
-            />
-            {loadFailed ? (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-void/90 px-6 text-center">
-                <p className="text-[12.5px] text-ink">视频加载失败</p>
-                <p className="text-[11px] text-ink-faint">
-                  文件可能已被删除或没有访问权限，请刷新重试；仍不行请联系管理员
-                </p>
-              </div>
-            ) : null}
-          </div>
-
-          <div className="flex items-center gap-3 border-t border-line-soft px-3 py-2.5">
-            <button
-              type="button"
-              className="flex h-8 w-8 items-center justify-center rounded-full border border-line text-ink-dim transition-colors hover:border-accent-2 hover:text-ink"
-              aria-label={playing ? '暂停' : '播放'}
-              onClick={togglePlay}
-            >
-              {playing ? <PauseIcon /> : <PlayIcon />}
-            </button>
-            <span className="tnum ml-auto text-[12px] text-ink-dim">
-              {formatDuration(currentMs, false)} / {formatDuration(durationSec * 1000, false)}
-            </span>
-          </div>
-        </section>
-
-        <aside
-          className="panel flex w-full shrink-0 flex-col overflow-hidden lg:w-[280px]"
-          aria-label="片段"
-        >
-          {/* 标题栏不参与滚动，只有下方列表滚 */}
-          <div className="flex items-center justify-between border-b border-line-soft px-3.5 py-2.5">
-            <h2 className="text-[12.5px] font-medium text-ink">片段</h2>
-            <span className="tnum text-[11.5px] text-ink-faint">{segments.length}</span>
-          </div>
+        <VideoPlayer videoRef={videoRef} videoKey={task.id} src={task.streamUrl}
+          playing={playing} currentMs={currentMs} durationMs={durationSec * 1000}
+          loadFailed={loadFailed} onTogglePlay={togglePlay} />
+        <VideoSegmentsPanel count={segments.length}>
           <SegmentList
             segments={segments}
             selectedId={selectedId}
@@ -612,7 +551,7 @@ export default function Workbench({ task, initialSegments, readOnly = false }: P
             busy={deletingId !== null || committing || submitting || history.busy}
             readOnly={readOnly}
           />
-        </aside>
+        </VideoSegmentsPanel>
       </div>
 
       {/* 固定高度：提示出现与消失都不推挤时间轴，标注时轨道位置不跳 */}

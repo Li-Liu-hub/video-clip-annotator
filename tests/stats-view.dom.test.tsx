@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /** R1 统计原生表单契约：action 必须包含部署 basePath。 */
-import { cleanup, render } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 afterEach(() => {
@@ -10,6 +10,18 @@ afterEach(() => {
 });
 
 describe('统计日期表单', () => {
+  it('个人工作量只保留按日和按任务入口', async () => {
+    const { default: StatsView } = await import('@/app/stats/StatsView');
+    render(<StatsView result={{ dimension: 'day', rows: [] }} range={{ from: '2026-10-20', to: '2026-10-26' }}
+      today="2026-10-26" isAdmin={false} rangeAdjusted={false} />);
+    expect(screen.getByRole('navigation', { name: '统计视图' }).textContent).toBe('按日按任务');
+  });
+  it('管理员统计保留按人入口', async () => {
+    const { default: StatsView } = await import('@/app/stats/StatsView');
+    render(<StatsView result={{ dimension: 'day', rows: [] }} range={{ from: '2026-10-20', to: '2026-10-26' }}
+      today="2026-10-26" isAdmin rangeAdjusted={false} />);
+    expect(screen.getByRole('link', { name: '按人' }).getAttribute('href')).toBe('/stats?dim=annotator&from=2026-10-20&to=2026-10-26');
+  });
   it('子路径部署时提交到带前缀的统计地址', async () => {
     vi.resetModules();
     vi.stubEnv('NEXT_PUBLIC_BASE_PATH', '/vsap');

@@ -80,6 +80,8 @@ export default async function AdminTasksPage({ searchParams }: Props) {
         timezone={actor.timezone}
         currentUser={null}
         canReject
+        returnPage={page}
+        reviewStatus={status ?? undefined}
       />
       <TaskPager
         total={result.total}

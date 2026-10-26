@@ -16,6 +16,12 @@ import {
 
 const TODAY = '2026-10-25';
 
+describe('个人工作量维度', () => {
+  it('个人访问旧按人链接时回落按日，管理员仍保留按人维度', () => {
+    expect([normalizeDimension('annotator', false), normalizeDimension('annotator', true)]).toEqual(['day', 'annotator']);
+  });
+});
+
 describe('rangeOf：预设区间都含今天', () => {
   it('最近 7 天从 6 天前到今天', () => {
     expect(rangeOf('last7', TODAY)).toEqual({ from: '2026-10-19', to: '2026-10-25' });

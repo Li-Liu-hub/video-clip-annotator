@@ -15,7 +15,7 @@ import {
 } from '@/lib/db/repos/task-repo';
 import { AppError } from '@/lib/errors';
 import type { SessionUser } from '@/lib/services/auth-service';
-import { PAGE_SIZE, listTasks } from '@/lib/services/task-service';
+import { PAGE_SIZE, listTasks, listTenantTasks } from '@/lib/services/task-service';
 
 const TENANT_A = 'aaaaaaaaaaaaaaaa';
 const TENANT_B = 'bbbbbbbbbbbbbbbb';
@@ -101,6 +101,20 @@ const ALL_IN_ORDER = [
 ];
 
 let db: DB;
+
+describe('发布时查看空间现有任务', () => {
+  it('空间明细只包含该空间的所有状态任务', () => {
+    expect(listTenantTasks(db, ADMIN, TENANT_A, 1).items.map((task) => task.id)).toEqual([
+      T1_SUBMITTED_SELF, T1_CLAIMED_PEER, T1_CLAIMED_SELF, T1_PENDING,
+    ]);
+  });
+  it('标注员不能调用空间明细服务', () => {
+    expect(() => listTenantTasks(db, ALICE, TENANT_B, 1)).toThrow('没有权限');
+  });
+  it('空间明细分页不会退回全量查询', () => {
+    expect(listTenantTasks(db, ADMIN, TENANT_A, 2)).toEqual({ items: [], total: 4, page: 2, pageSize: PAGE_SIZE });
+  });
+});
 
 function seed(): DB {
   const fresh = createDb(':memory:');
