@@ -5,8 +5,10 @@
  * 不在这里再判一遍 —— 页面里的判断不可单测，也会与 service 各写一套。
  */
 import type { Metadata } from 'next';
-import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
+import AppShell from '@/components/app-shell';
+import PageHeader from '@/components/page-header';
+import { parsePageParam } from '@/app/tasks/page-param';
 import { NotFoundError } from '@/lib/errors';
 import { getDb } from '@/lib/server/db';
 import { requireUser } from '@/lib/server/guards';
@@ -17,7 +19,10 @@ import Workbench from './Workbench';
 
 export const metadata: Metadata = { title: '标注工作台 · 片段标注' };
 
-type Props = { params: Promise<{ id: string }> };
+type Props = {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ returnPage?: string | string[] }>;
+};
 
 /** 「无权看」与「不存在」同一条出口，页面不提供第三态。 */
 function loadWorkTask(user: TenantUser, taskId: string): WorkTask {
@@ -37,7 +42,7 @@ function loadSegments(user: TenantUser, taskId: string): SegmentRow[] {
   return listSegments(getDb(), user, taskId);
 }
 
-export default async function WorkPage({ params }: Props) {
+export default async function WorkPage({ params, searchParams }: Props) {
   const user = await requireUser();
   // 管理员不参与标注，工作台对他没有入口价值：与 /tasks 一致回管理台，而不是伪装成 404
   if (user.role === 'admin') redirect('/admin/tasks');
@@ -45,50 +50,46 @@ export default async function WorkPage({ params }: Props) {
   if (!isTenantUser(user)) notFound();
 
   const { id } = await params;
+  const returnPage = parsePageParam((await searchParams).returnPage);
   const task = loadWorkTask(user, id);
   const segments = loadSegments(user, id);
   // 状态只在这里判一次：客户端拿到 readOnly 直接用，不再自己查一遍（查法两处必然漂移）
   const readOnly = task.status === 'submitted';
 
   return (
-    <div className="mx-auto max-w-[1180px] px-6 py-7">
-      <header className="mb-5">
-        <Link
-          href="/tasks"
-          className="text-[11.5px] text-ink-faint transition-colors hover:text-ink"
-        >
-          ← 任务列表
-        </Link>
-        <div className="mt-2 flex items-baseline justify-between gap-4">
-          <h1 className="text-[20px] font-medium tracking-tight text-ink">{task.title}</h1>
-          {/* 已完成用 tag-good，与任务列表的「已提交」同一套色（token 名是 good，无 ok） */}
-          {readOnly ? (
-            <span className="tag text-good">已提交</span>
-          ) : (
-            <span className="tag text-accent">已领取</span>
-          )}
-        </div>
-        <p className="mt-1 truncate text-[11.5px] text-ink-faint" title={task.videoFilename}>
-          {task.videoFilename}
-        </p>
-        {readOnly ? (
-          <p className="mt-1.5 text-[12px] text-good">已提交，仅供查看</p>
-        ) : null}
-        {/* 退回原因只在这里出现：列表页只在 status='rejected' 时显示，
-            重新打开后状态已是 claimed —— 不带到这里，标注员就看不到要改什么 */}
-        {task.rejectReason ? (
-          <p className="mt-2 rounded-[3px] border-l-2 border-bad bg-panel-2 px-2.5 py-1.5 text-[12px] leading-relaxed text-ink-dim">
-            <span className="text-bad">退回原因：</span>
-            {task.rejectReason}
-          </p>
-        ) : null}
-        {task.description ? (
-          <p className="mt-1.5 text-[12.5px] leading-relaxed text-ink-dim">{task.description}</p>
-        ) : null}
-      </header>
+    <AppShell user={{ displayName: user.displayName, role: user.role }}>
+      <div className="mx-auto max-w-[1180px]">
+        <PageHeader
+          title={task.title}
+          back={{ href: `/tasks?page=${returnPage}`, label: '任务列表' }}
+          actions={
+            readOnly ? (
+              <span className="tag text-good">已提交</span>
+            ) : (
+              <span className="tag text-accent">已领取</span>
+            )
+          }
+          description={
+            <>
+              <p className="truncate text-[11.5px] text-ink-faint" title={task.videoFilename}>
+                {task.videoFilename}
+              </p>
+              {readOnly ? <p className="mt-1.5 text-[12px] text-good">已提交，仅供查看</p> : null}
+              {/* 重新打开后仍保留退回原因，标注员才知道需要修改什么。 */}
+              {task.rejectReason ? (
+                <p className="mt-2 rounded-[3px] border-l-2 border-bad bg-panel-2 px-2.5 py-1.5 text-[12px] leading-relaxed text-ink-dim">
+                  <span className="text-bad">退回原因：</span>
+                  {task.rejectReason}
+                </p>
+              ) : null}
+              {task.description ? <p className="mt-1.5">{task.description}</p> : null}
+            </>
+          }
+        />
 
-      {/* key 绑任务 id：换任务时组件重建，useState 的初值才会重新取服务端片段 */}
-      <Workbench key={task.id} task={task} initialSegments={segments} readOnly={readOnly} />
-    </div>
+        {/* key 绑任务 id：换任务时组件重建，useState 的初值才会重新取服务端片段 */}
+        <Workbench key={task.id} task={task} initialSegments={segments} readOnly={readOnly} />
+      </div>
+    </AppShell>
   );
 }

@@ -2,7 +2,7 @@
 /**
  * 浏览器层门禁：每个脚本一套「独立种子库 + 独立服务」。
  *
- * 为什么不用同一个库跑三个脚本：它们都假设「alice 的已领取任务里有 1 段」，
+ * 为什么不共用一个库：多个脚本都假设「alice 的已领取任务里有 1 段」，
  * 上一个脚本留下的拖拽/删除会污染下一个。共用库时第一遍能过、第二遍必挂，
  * 那种门禁比没有更糟。
  *
@@ -22,9 +22,13 @@ import { fileURLToPath } from 'node:url';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..', '..');
 const PORT = Number(process.env.BROWSER_PORT ?? 3100);
-const BASE = `http://127.0.0.1:${PORT}`;
+const BASE_PATH = process.env.BROWSER_BASE_PATH ?? process.env.NEXT_PUBLIC_BASE_PATH ?? '';
+const BASE = `http://127.0.0.1:${PORT}${BASE_PATH}`;
 const SHOT_DIR = process.env.SHOT_DIR ?? fs.mkdtempSync(path.join(os.tmpdir(), 'vsap-shots-'));
-const SCRIPTS = (process.env.BROWSER_SCRIPTS ?? 'browser-check.py,browser-polish.py,browser-a11y.py')
+const SCRIPTS = (
+  process.env.BROWSER_SCRIPTS ??
+  'browser-check.py,browser-polish.py,browser-a11y.py,browser-navigation.py'
+)
   .split(',')
   .map((name) => name.trim())
   .filter(Boolean);
@@ -116,6 +120,7 @@ async function runOne(python, script) {
         env: {
           ...process.env,
           BASE_URL: BASE,
+          APP_BASE_PATH: BASE_PATH,
           DB_PATH: dbPath,
           SHOT_DIR,
         },

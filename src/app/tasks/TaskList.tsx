@@ -42,6 +42,8 @@ type TaskListProps = {
   currentUser: { id: string; displayName: string } | null;
   /** 管理员审核入口。没有「通过」按钮：提交即计入，审核只做退回。 */
   canReject?: boolean;
+  /** 从标注员第 N 页进入工作台时携带同一页码，不使用任意返回 URL。 */
+  returnPage?: number;
 };
 
 type TaskPagerProps = {
@@ -96,6 +98,7 @@ export default function TaskList({
   timezone,
   currentUser,
   canReject = false,
+  returnPage = 1,
 }: TaskListProps) {
   const [rows, setRows] = useState<Record<string, RowUi>>({});
   /** 正在填退回原因的任务 id；null 表示没有展开的输入区 */
@@ -336,30 +339,44 @@ export default function TaskList({
                                   type="button"
                                   className="btn btn-primary"
                                   disabled={busy}
+                                  aria-busy={busy}
                                   onClick={() => void act(task.id, 'claim')}
                                 >
-                                  领取
+                                  {busy ? '领取中…' : '领取'}
                                 </button>
                               ) : null}
 
                               {status === 'claimed' && mine ? (
                                 <>
-                                  <Link className="btn btn-quiet" href={`/tasks/${task.id}/work`}>
+                                  <Link
+                                    className="btn btn-quiet"
+                                    href={`/tasks/${task.id}/work?returnPage=${returnPage}`}
+                                  >
                                     继续标注
                                   </Link>
                                   <button
                                     type="button"
                                     className="btn btn-quiet"
                                     disabled={busy}
+                                    aria-busy={busy}
                                     onClick={() => void act(task.id, 'release')}
                                   >
-                                    归还
+                                    {busy ? '归还中…' : '归还'}
                                   </button>
                                 </>
                               ) : null}
 
                               {status === 'claimed' && !mine ? (
                                 <span className="text-[11.5px] text-ink-faint">进行中</span>
+                              ) : null}
+
+                              {status === 'submitted' && mine ? (
+                                <Link
+                                  className="btn btn-quiet"
+                                  href={`/tasks/${task.id}/work?returnPage=${returnPage}`}
+                                >
+                                  查看标注
+                                </Link>
                               ) : null}
 
                               {/* 退回留在原人名下，所以只有本人能看到这个按钮；
@@ -369,9 +386,10 @@ export default function TaskList({
                                   type="button"
                                   className="btn btn-primary"
                                   disabled={busy}
+                                  aria-busy={busy}
                                   onClick={() => void reopen(task.id)}
                                 >
-                                  重新打开
+                                  {busy ? '重新打开中…' : '重新打开'}
                                 </button>
                               ) : null}
                             </>
@@ -434,9 +452,10 @@ export default function TaskList({
                             type="button"
                             className="btn btn-primary"
                             disabled={busy}
+                            aria-busy={busy}
                             onClick={() => void reject(task.id)}
                           >
-                            确认退回
+                            {busy ? '退回中…' : '确认退回'}
                           </button>
                         </div>
                       </td>

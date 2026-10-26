@@ -97,7 +97,7 @@ export default function StatsView({ result, range, today, isAdmin, rangeAdjusted
             受控值没变时 React 会复用 DOM 节点，defaultValue 的更新不会显示出来 */}
         <form
           key={`${range.from}_${range.to}`}
-          action="/stats"
+          action={withBasePath('/stats')}
           method="get"
           className="ml-auto flex flex-wrap items-end gap-2"
         >

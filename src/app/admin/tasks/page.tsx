@@ -6,6 +6,7 @@
  */
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import PageHeader from '@/components/page-header';
 import TaskList, { TaskPager } from '@/app/tasks/TaskList';
 import { parsePageParam } from '@/app/tasks/page-param';
 import { getDb } from '@/lib/server/db';
@@ -43,20 +44,18 @@ export default async function AdminTasksPage({ searchParams }: Props) {
 
   return (
     <div className="mx-auto max-w-[1080px]">
-      <header className="mb-6">
-        <div className="flex items-baseline justify-between gap-4">
-          <h1 className="text-[20px] font-medium tracking-tight text-ink">任务</h1>
-          <div className="flex items-center gap-3">
+      <PageHeader
+        title="任务"
+        description="全部租户的任务。标注员只看得到本空间的待领取与自己领取的任务。"
+        actions={
+          <>
             <span className="tnum text-[11.5px] text-ink-faint">共 {result.total} 条</span>
             <Link href="/admin/tasks/new" className="btn btn-primary">
               新建任务
             </Link>
-          </div>
-        </div>
-        <p className="mt-1.5 text-[12.5px] leading-relaxed text-ink-dim">
-          全部租户的任务。标注员只看得到本空间的待领取与自己领取的任务。
-        </p>
-      </header>
+          </>
+        }
+      />
 
       <div className="mb-3 flex flex-wrap items-center gap-2">
         {FILTERS.map((filter) => (

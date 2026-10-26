@@ -28,7 +28,11 @@ export type TenantOption = {
   taskCount: number;
 };
 
-export type TaskFormProps = { videos: VideoOption[]; tenants: TenantOption[] };
+export type TaskFormProps = {
+  videos: VideoOption[];
+  tenants: TenantOption[];
+  initialVideoId?: string | null;
+};
 
 /** 与 VideoManager 的显示口径一致：不足 1 MB 保留两位，避免小文件显示成 0.0 MB。 */
 function formatSize(bytes: number): string {
@@ -69,9 +73,9 @@ function Step({ index, title, hint, children }: StepProps) {
   );
 }
 
-export default function TaskForm({ videos, tenants }: TaskFormProps) {
+export default function TaskForm({ videos, tenants, initialVideoId = null }: TaskFormProps) {
   const router = useRouter();
-  const [videoId, setVideoId] = useState<string | null>(null);
+  const [videoId, setVideoId] = useState<string | null>(initialVideoId);
   const [tenantIds, setTenantIds] = useState<string[]>([]);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');

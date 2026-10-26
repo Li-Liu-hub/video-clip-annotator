@@ -5,6 +5,7 @@
  * 顺便让「这个页面本身必须管理员」不依赖布局的间接保护。
  */
 import type { Metadata } from 'next';
+import PageHeader from '@/components/page-header';
 import { getDb } from '@/lib/server/db';
 import { requireAdmin } from '@/lib/server/guards';
 import { listVisibleVideos } from '@/lib/services/video-service';
@@ -26,15 +27,13 @@ export default async function AdminVideosPage() {
 
   return (
     <div className="mx-auto max-w-[1080px]">
-      <header className="mb-6">
-        <div className="flex items-baseline justify-between gap-4">
-          <h1 className="text-[20px] font-medium tracking-tight text-ink">视频</h1>
+      <PageHeader
+        title="视频"
+        description="上传机器人示教视频。时长与大小随视频落库，创建任务时直接引用。"
+        actions={
           <span className="tnum text-[11.5px] text-ink-faint">共 {videos.length} 个素材</span>
-        </div>
-        <p className="mt-1.5 text-[12.5px] leading-relaxed text-ink-dim">
-          上传机器人示教视频。时长与大小随视频落库，创建任务时直接引用。
-        </p>
-      </header>
+        }
+      />
 
       <VideoManager initialVideos={videos} timezone={actor.timezone} />
     </div>

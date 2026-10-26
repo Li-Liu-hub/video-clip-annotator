@@ -8,6 +8,8 @@
  * 让 service 抛错（页面级抛错会整页变 500），回落时由 StatsView 提示一句。
  */
 import type { Metadata } from 'next';
+import AppShell from '@/components/app-shell';
+import PageHeader from '@/components/page-header';
 import { getDb } from '@/lib/server/db';
 import { requireUser } from '@/lib/server/guards';
 import { listStats } from '@/lib/services/stats-service';
@@ -39,21 +41,24 @@ export default async function StatsPage({ searchParams }: Props) {
   });
 
   return (
-    <div className="mx-auto max-w-[1080px] px-6 py-7">
-      <header className="mb-6">
-        <h1 className="text-[20px] font-medium tracking-tight text-ink">统计</h1>
-        <p className="mt-1.5 text-[12.5px] leading-relaxed text-ink-dim">
-          时长都是账本净额：退回会在原提交日冲正，所以过去的某一天数字可能变小。
-        </p>
-      </header>
-
-      <StatsView
-        result={result}
-        range={range}
-        today={today}
-        isAdmin={user.role === 'admin'}
-        rangeAdjusted={adjusted}
-      />
-    </div>
+    <AppShell user={{ displayName: user.displayName, role: user.role }}>
+      <div className="mx-auto max-w-[1080px]">
+        <PageHeader
+          title="统计"
+          description="时长都是账本净额：退回会在原提交日冲正，所以过去的某一天数字可能变小。"
+          back={{
+            href: user.role === 'admin' ? '/admin/tasks' : '/tasks',
+            label: user.role === 'admin' ? '任务管理' : '我的任务',
+          }}
+        />
+        <StatsView
+          result={result}
+          range={range}
+          today={today}
+          isAdmin={user.role === 'admin'}
+          rangeAdjusted={adjusted}
+        />
+      </div>
+    </AppShell>
   );
 }

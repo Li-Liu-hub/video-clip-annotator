@@ -7,6 +7,7 @@
  * 上传成功后不调 router.refresh()，否则整页重渲染会让进度条闪一下才消失。
  */
 
+import Link from 'next/link';
 import { useRef, useState } from 'react';
 import { formatDuration } from '@/lib/time';
 import {
@@ -364,11 +365,12 @@ export default function VideoManager({ initialVideos, timezone }: Props) {
                         {formatUploadedAt(video.createdAt, timezone)}
                       </td>
                       <td className="px-4 py-2.5 text-right">
-                        <span title="后续版本">
-                          <button type="button" className="btn btn-quiet" disabled>
-                            去建任务
-                          </button>
-                        </span>
+                        <Link
+                          className="btn btn-quiet"
+                          href={`/admin/tasks/new?videoId=${encodeURIComponent(video.id)}`}
+                        >
+                          去建任务
+                        </Link>
                       </td>
                     </tr>
                   ))}

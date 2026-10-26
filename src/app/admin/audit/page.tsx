@@ -7,6 +7,7 @@
  */
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import PageHeader from '@/components/page-header';
 import { TaskPager } from '@/app/tasks/TaskList';
 import { parsePageParam } from '@/app/tasks/page-param';
 import { AUDIT_ACTIONS, AUTH_LOGOUT_ACTION } from '@/lib/audit-actions';
@@ -92,15 +93,11 @@ export default async function AdminAuditPage({ searchParams }: Props) {
 
   return (
     <div className="mx-auto max-w-[1080px]">
-      <header className="mb-6">
-        <div className="flex items-baseline justify-between gap-4">
-          <h1 className="text-[20px] font-medium tracking-tight text-ink">审计</h1>
-          <span className="tnum text-[11.5px] text-ink-faint">共 {total} 条</span>
-        </div>
-        <p className="mt-1.5 text-[12.5px] leading-relaxed text-ink-dim">
-          只读记录：不提供删除，也不提供编辑。按动作、操作人与时间筛选。
-        </p>
-      </header>
+      <PageHeader
+        title="审计"
+        description="只读记录：不提供删除，也不提供编辑。按动作、操作人与时间筛选。"
+        actions={<span className="tnum text-[11.5px] text-ink-faint">共 {total} 条</span>}
+      />
 
       <form method="get" className="mb-3 flex flex-wrap items-end gap-2">
         <div className="w-[168px]">
