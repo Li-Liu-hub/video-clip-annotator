@@ -18,6 +18,22 @@
 
 当前演示采用“一位标注员一个租户/工作空间”，尚未提供多人团队成员管理。
 
+## 界面截图
+
+以下截图使用演示数据，点击图片可查看大图。
+
+**标注工作台**：视频播放、片段列表、时间轴、提交与快捷键。
+
+![标注工作台：视频、片段列表和时间轴](docs/screenshots/workbench.png)
+
+**管理员审核**：查看提交快照，按片段播放并填写退回原因。
+
+![管理员审核：片段播放、只读时间轴和退回操作](docs/screenshots/review.png)
+
+**工作量统计**：按提交日期查看有效时长，支持筛选与 CSV 导出。
+
+![按日统计：有效时长图表和日期明细](docs/screenshots/workload.png)
+
 ## 技术栈
 
 Next.js 15、React 19、TypeScript、Tailwind CSS 4、SQLite / better-sqlite3。视频通过带鉴权的 HTTP Range 接口播放，不依赖外部数据库服务。
